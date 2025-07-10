@@ -1,0 +1,7 @@
+{
+ "cmake.buildDirectory": "${workspaceFolder}/../build/logrip", 
+ "launch": {
+    "defaultConfig": "Debug"
+ }
+ 
+}

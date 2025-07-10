@@ -17,7 +17,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include <conio.h>
+#ifdef _WIN32
+  #include <conio.h>
+#endif
 
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include "httplib.h"
@@ -56,38 +58,38 @@ struct LogInfo {
 
 // ip info
 struct IPInfo {
-	int						lev;
-	uint32_t			ip;
+  int       lev;
+  uint32_t  ip;
 
-	int						block;							// blocklist score
+  int    block;           // blocklist score
 
-	TimeX					start_date;					// start range of access
-	TimeX					end_date;						// end range of access
+  TimeX  start_date;      // start range of access
+  TimeX  end_date;        // end range of access
 
-	float					elapsed;						// elapsed time (in mins)
-	int						ip_cnt;							// number of ips in subnet
-	int						page_cnt;						// number of pages touched
-	int						uniq_cnt;						// number of unique pages	
+  float  elapsed;         // elapsed time (in mins)
+  int    ip_cnt;          // number of ips in subnet
+  int    page_cnt;        // number of pages touched
+  int    uniq_cnt;        // number of unique pages
 
-	int						num_days;
-	int						num_robots;					// total robot.txt hits
-	int						max_consecutive;		// max consecutive days
-	float					daily_min_hit;			// lowest hits per day
-	float					daily_ave_hit;			// ave hits per day
-	float					daily_max_hit;			// highest hits per day
-	float					daily_min_ppm;			// lowest daily freq (pages/min)
-	float					daily_max_ppm;			// highest daily freq (pages/min)
-	float					daily_min_range;		// lowest daily range (start to end in hours)
-	float					daily_max_range;		// highest daily range (start to end in hours)
+  int    num_days;
+  int    num_robots;      // total robot.txt hits
+  int    max_consecutive; // max consecutive days
+  float  daily_min_hit;   // lowest hits per day
+  float  daily_ave_hit;   // ave hits per day
+  float  daily_max_hit;   // highest hits per day
+  float  daily_min_ppm;   // lowest daily freq (pages/min)
+  float	 daily_max_ppm;   // highest daily freq (pages/min)
+  float  daily_min_range; // lowest daily range (start to end in hours)
+  float	 daily_max_range; // highest daily range (start to end in hours)
 
-	float					daily_pages;				// ave  # pages per day
-	float					daily_uniq;					// uniq # pages per day
-	float					uniq_ratio;
-	float					visit_freq;
-	float					visit_time;
-	std::string		lookup[10];
+  float  daily_pages;     // ave  # pages per day
+  float  daily_uniq;      // uniq # pages per day
+  float  uniq_ratio;
+  float  visit_freq;
+  float  visit_time;
+  std::string  lookup[10];
 
-	std::vector<LogInfo>		pages;	
+  std::vector<LogInfo>	pages;	
 };
 
 struct DayInfo {
@@ -253,7 +255,7 @@ void LogRip::LoadLog (std::string filename)
 	while (!feof(fp) && cnt < maxlog ) {		
 		fgets ( buf, 16384, fp );
 		lin = buf;
-		//dbgprintf ("===== %s", lin.c_str() );
+		// dbgprintf ("===== %s", lin.c_str() );
 		
 		/*
 		// get page
@@ -297,15 +299,16 @@ void LogRip::LoadLog (std::string filename)
 	
 		// get page
 		ok = strParseOutStr(lin, "Started GET", "for ", page, lin);
+		//dbgprintf("   lin: %s\n", lin.c_str() );
 	  if (!ok) continue;
 		page = strTrim (page, " \"" );
 
 		// get IP
-		strParseOutStr (lin, "for ", " at", ipstr, lin);				
+		strParseOutStr (lin, "for ", " at", ipstr, lin);						
 		if (!ok) continue;
 		
 		Vec4F ipvec = strToVec4( "<"+ipstr+">", '.');				
-		///dbgprintf("   %s: %d . %d . %d . %d\n", ipstr.c_str(), ip.x, ip.y, ip.z, ip.w );
+		//dbgprintf("   %s: %d . %d . %d . %d\n", ipstr.c_str(), (int) ipvec.x, (int) ipvec.y, (int) ipvec.z, (int) ipvec.w );
 
 		// get datetime	
 		strParseOutStr (lin, "at ", "\n", datestr, lin);		
@@ -315,7 +318,7 @@ void LogRip::LoadLog (std::string filename)
 		
 		// all fields ok
 		LogInfo li;
-    li.date = t;
+    	li.date = t;
 		li.ip = vecToIP(ipvec);
 		li.page = page;
 		m_Log.push_back ( li );
@@ -741,7 +744,7 @@ void LogRip::OutputHits ( std::string filename )
 		}
 	}
 	sprintf ( buf, "firstdate, %s\n", m_Log[first].date.WriteDateTime().c_str() );
-	fprintf ( outcsv, buf );
+	fprintf ( outcsv, "%s", buf );
 
 	m_img[I_ORIG].Fill(255, 255, 255, 255);	
 	m_img[I_BLOCKED].Fill(255, 255, 255, 255);		
@@ -771,7 +774,7 @@ void LogRip::OutputHits ( std::string filename )
 		float ip = ipvec.x*256 + ipvec.y + (ipvec.z/256.0f);
 
 		sprintf ( buf, "%f, %f\n", tm, ip );
-		fprintf ( outcsv, buf );
+		fprintf ( outcsv, "%s", buf );
 
 		fd = FindIP ( i.ip, SUB_D );
 		fc = FindIP ( i.ip, SUB_C );
@@ -783,7 +786,7 @@ void LogRip::OutputHits ( std::string filename )
 		
 		clr_orig = Vec4F(0,0,0, 255);	
 		clr_block = Vec4F( 128, 128, 128, 255);
-	  clr_filter = Vec4F( 0, 0, 0, 255);
+	    clr_filter = Vec4F( 0, 0, 0, 255);
 		block = false;		
 		
 		// class D blocking
@@ -812,9 +815,9 @@ void LogRip::OutputHits ( std::string filename )
 		m_Log[n].block = imax(fd->block, imax(fc->block, fb->block));
 			
 		if (block) clr_filter = clr_block;
-		m_img[I_ORIG].Dot(x, y, 2.0, clr_orig );
-		m_img[I_BLOCKED].Dot(x, y, (clr_block.x==128) ? 2.0 : 3, clr_block);
-		if ( !block ) m_img[I_FILTERED].Dot(x, y, 2.0, clr_filter );		
+		m_img[I_ORIG].Dot(x, y, 3.0, clr_orig );
+		m_img[I_BLOCKED].Dot(x, y, 3.0, clr_block);
+		if ( !block ) m_img[I_FILTERED].Dot(x, y, 3.0, clr_filter );		
 	}
 
 	fclose(outcsv);
@@ -921,7 +924,11 @@ void LogRip::LookupName (IPInfo* f)
 			f->lookup[n] = strSplitLeft(str, "\n");
 		}
 	}
-	Sleep(1500);   // ip-api, "This endpoint is limited to 45 queries per minute from an IP address"	
+        #ifdef _WIN32
+	   Sleep(1500);   // ip-api, "This endpoint is limited to 45 queries per minute from an IP address"	
+        #else
+           sleep(1500);
+        #endif
 }
 
 void LogRip::OutputIPs (int outlev, int lev, uint32_t parent, FILE* fp)
@@ -945,7 +952,7 @@ void LogRip::OutputIPs (int outlev, int lev, uint32_t parent, FILE* fp)
 				
 				float day_freq = f.visit_freq / f.elapsed;			// # secs/day
 
-				sprintf(buf, "%s, %d, %d, %d, %.2f, %.2f, %d, %d, %d, %d, %f, %f, %f, %f, %s, %s, %s, %s\n", 
+				sprintf(buf, "%s, %d, %d, %d, %.2f, %.2f, %d, %d, %f, %f, %f, %f, %f, %f, %s, %s, %s, %s\n", 
 														ipToStr(it->first).c_str(), f.ip_cnt, f.page_cnt, f.uniq_cnt, 
 														(float) f.uniq_cnt /(float) f.page_cnt, f.elapsed, 
 														f.max_consecutive, f.num_robots, 
@@ -1047,62 +1054,62 @@ bool LogRip::init()
 {
   // load journalctl log
 
-  //std::string logfile = "D:\\access_full_Feb2025.log";  
+  printf ("LOGRIP\n");
+  printf ("Copyright (c) 2024-2025, Quanta Sciences, Rama Hoetzlein\n");
+  printf ("MIT License\n");
 
-  //std::string logfile = "E:\\Master-Data\\csi_data\\access_log_2025_02_12.txt";
-	std::string logfile = "E:\\Master-Data\\csi_data\\access_log_2025_02_03.txt";
+  std::string logfile = std::string(ASSET_PATH) + std::string("example_log.txt");
   
-  //std::string logfile = "E:\\Master-Data\\csi_data\\access_log_example.txt";
+  LoadLog ( logfile );
 
-	LoadLog ( logfile );
+  ConstructIPHash();
 
-	ConstructIPHash();
+  PrepareDays ();
 
-	PrepareDays ();
+  ProcessIPs( SUB_D );
 
-	ProcessIPs( SUB_D );	
-	
-	ConstructSubnet ( SUB_D, SUB_C );
+  ConstructSubnet ( SUB_D, SUB_C );
 
-	ConstructSubnet ( SUB_C, SUB_B );
-	
+  ConstructSubnet ( SUB_C, SUB_B );
+
   ConstructSubnet ( SUB_B, SUB_A );
 
-	ProcessIPs ( SUB_C );
+  ProcessIPs ( SUB_C );
 
-	ProcessIPs ( SUB_B );
-	
-	// dbgprintf ( "Writing IPs.\n");
-	// OutputIPs ( SUB_D, "out_ips.csv");
+  ProcessIPs ( SUB_B );
 
-	// dbgprintf("Writing Cnets.\n");
-	// OutputIPs ( SUB_C, "out_cnet.csv");
-	
-	// dbgprintf("Writing Pages.\n");
-  // OutputPages ( "out_pages.csv" );
+  // dbgprintf ( "Writing IPs.\n");
+  OutputIPs ( SUB_D, "out_ips.csv");
 
-	CreateImg ( 2480, 1024 );
+  // dbgprintf("Writing Cnets.\n");
+  OutputIPs ( SUB_C, "out_cnet.csv");
+  // dbgprintf("Writing Pages.\n");
+  OutputPages ( "out_pages.csv" );
+
+  CreateImg ( 2480, 1024 );
   //CreateImg ( 8192, 4096 );
 
 	// dbgprintf("Writing Hits.\n");
-	OutputHits ( "out_hits.csv" );
+  OutputHits ( "out_hits.csv" );
 
-	dbgprintf("Writing Loads.\n");
-	OutputLoads ( "" );
+  dbgprintf("Writing Loads.\n");
+  OutputLoads ( "" );
 
-	dbgprintf("Done.\n");
+  dbgprintf("Done.\n");
 
-	return true;
+  exit(1);
+
+  return true;
 }
 
 void LogRip::display()
 {
-	appPostRedisplay();
+  appPostRedisplay();
 }
 
 void LogRip::startup()
 {
-	appStart("LogRip (c) Quanta 2025", "logrip", 1024, 768, 3, 5, 16 );
+	appStart("Logrip (c) 2024-2025, Quanta Sciences", "logrip", 1024, 768, 3, 5, 16 );
 }
 
 

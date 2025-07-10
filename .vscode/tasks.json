@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+  {
+    "label": "Echo buildDirectory",
+    "type": "shell",
+    "command": "echo",
+    "args": ["${command:cmake.buildDirectory}"],
+    "problemMatcher": []
+  }
+  ]
+}

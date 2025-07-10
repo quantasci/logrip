@@ -1,0 +1,25 @@
+{
+  "configurations": [
+    {
+      "name": "Debug (with Args)",
+      "type": "cppdbg",
+      "request": "launch",      
+      "program": "${command:cmake.buildDirectory}/logripd",      
+
+      "args": ["example_log.txt"],
+      
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "setupCommands": [
+      {
+        "description": "Enable pretty-printing for gdb",
+        "text": "-enable-pretty-printing",
+        "ignoreFailures": true
+      } ]
+    }
+  ]
+}

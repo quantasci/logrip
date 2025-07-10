@@ -1,5 +1,9 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.5)
 set (CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_BINARY_DIR} CACHE PATH "")
+
+if (POLICY CMD0146)
+  cmake_policy(SET CMP0146 OLD)
+endif()
 
 set(PROJNAME logrip)
 Project(${PROJNAME})
@@ -38,15 +42,17 @@ else()
     LIST( APPEND LIBMIN_SOURCE_FILES ${LIBMIN_SRC} ${LIBMIN_INC} )
     message ( STATUS "  ---> Using LIBMIN (static)")
   else()    
-    LIST( APPEND LIBRARIES_OPTIMIZED "${LIBMIN_LIB_DIR}/${LIBMIN_REL}")
-    LIST( APPEND LIBRARIES_DEBUG "${LIBMIN_LIB_DIR}/${LIBMIN_DEBUG}")	    
-    _EXPANDLIST( OUTPUT PACKAGE_DLLS SOURCE ${LIBMIN_LIB_DIR} FILES ${LIBMIN_DLLS} )
+    LIST( APPEND LIBRARIES_OPTIMIZED "${LIBMIN_REL}")
+    LIST( APPEND LIBRARIES_DEBUG "${LIBMIN_DEBUG}")	    
+    _EXPANDLIST( OUTPUT PACKAGE_DLLS SOURCE "" FILES ${LIBMIN_DLLS} )
     message ( STATUS "  ---> Using LIBMIN")
   endif() 
 endif()
 
 #####################################################################################
 # Options
+
+set(BUILD_CONSOLE ON CACHE BOOL "Logrip is console app." FORCE )
 
 _REQUIRE_MAIN()
 
@@ -60,7 +66,7 @@ set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG /OP
 # Asset Path
 #
 if ( NOT DEFINED ASSET_PATH ) 
-   get_filename_component ( _assets "${CMAKE_INSTALL_PREFIX}/assets" REALPATH )
+   get_filename_component ( _assets "${CMAKE_CURRENT_SOURCE_DIR}/assets" REALPATH )
    set ( ASSET_PATH ${_assets} CACHE PATH "Full path to /assets" )
    add_definitions( -DASSET_PATH="${ASSET_PATH}/" )
 endif()
@@ -102,8 +108,11 @@ _LINK ( PROJECT ${PROJNAME} OPT ${LIBRARIES_OPTIMIZED} DEBUG ${LIBRARIES_DEBUG} 
 #####################################################################################
 # Windows specific
 #
-_MSVC_PROPERTIES()
-source_group("Source Files" FILES ${MAIN_FILES} ${COMMON_SOURCE_FILES} ${PACKAGE_SOURCE_FILES})
+if ( WIN32 )
+  _MSVC_PROPERTIES()
+  source_group("Source Files" FILES ${MAIN_FILES} ${COMMON_SOURCE_FILES} ${PACKAGE_SOURCE_FILES})
+  install ( FILES $<TARGET_PDB_FILE:${PROJNAME}> DESTINATION ${CMAKE_INSTALL_PREFIX} OPTIONAL )		# PDB
+endif()
 
 #####################################################################################
 # Install Binaries
@@ -116,7 +125,6 @@ _DEFAULT_INSTALL_PATH()
 file (COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets" DESTINATION ${CMAKE_INSTALL_PREFIX} )	# assets folder
 
 _INSTALL ( FILES ${PACKAGE_DLLS} DESTINATION ${CMAKE_INSTALL_PREFIX} )		# DLLs
-install ( FILES $<TARGET_PDB_FILE:${PROJNAME}> DESTINATION ${CMAKE_INSTALL_PREFIX} OPTIONAL )		# PDB
 
 install ( FILES ${INSTALL_LIST} DESTINATION ${CMAKE_INSTALL_PREFIX} )		# exe, pdb
 
