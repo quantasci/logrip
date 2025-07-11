@@ -14,8 +14,10 @@
 #include "vec.h"
 #include "string_helper.h"
 #include "imagex.h"
+
 #include <stdlib.h>
 #include <stdio.h>
+#include <regex>
 
 #ifdef _WIN32
   #include <conio.h>
@@ -43,6 +45,8 @@ using namespace httplib;
 
 // log entry
 struct LogInfo {
+	void clear() {date.Clear(); page=""; ip=0; block=0; }
+	bool isValid() {return (!date.isEmpty() && !page.empty() && ip > 0); }
 	bool operator<(const LogInfo& other) const { return date < other.date; }
 	TimeX					date;
 	std::string		page;
@@ -245,14 +249,166 @@ void LogRip::SortPagesByName (std::vector<LogInfo>& pages)
 	} */
 }
 
+#define	T_UNKNOWN					0
+#define T_IP							1
+#define T_NAME						2
+#define T_PAGE						3
+#define T_PLATFORM				4
+#define	T_DATE_DDMMMYY		5
+#define	T_DATE_YYYY_MM_DD	6
+#define T_TIME_HHMMSS			7
+#define T_RETURN					8
+#define T_BYTES						9
+#define T_NUM							10
+#define T_GETPOST					11
+
+struct TokenDef {	
+	TokenDef(char t, std::string p)	{type=t; pattern=p;}
+	char					type;
+  std::string		pattern;
+};
+typedef std::vector<TokenDef>		defList;
+
+// capture groups
+std::unordered_map<std::string, TokenDef > tokenToRegex = 
+{
+		{"X.X.X.X",			{T_IP,						R"((\d+\.\d+\.\d+\.\d+))"}},
+		{"AAA",					{T_NAME,					R"(([A-Za-z_\- ]+))"}},
+		{"PAGE",				{T_PAGE,					R"((.*))"}},
+    {"PLATFORM",		{T_PLATFORM,			R"((.*?))"}},
+		{"DD/MMM/YYYY", {T_DATE_DDMMMYY,	R"((\d{2}/[A-Za-z]{3}/\d{4}))"}},
+		{"YYYY-MM-DD",  {T_DATE_YYYY_MM_DD,	R"((\d{4}-\d{2}-\d{2}))"}},
+		{"HH:MM:SS",		{T_TIME_HHMMSS,		R"((\d{2}:\d{2}:\d{2}))"}},
+		{"RETURN",			{T_RETURN,				R"((\d+))"}},
+		{"BYTES",				{T_BYTES,					R"((\d+))"}},
+		{"NNN",					{T_NUM,						R"((\d+))"}},
+		{"GET",					{T_GETPOST,				R"((\b(?:GET|POST|HEAD)\b))"}}
+};
+
+static const std::unordered_map<std::string, int> monthMap = {
+		{"Jan", 1}, {"Feb", 2}, {"Mar", 3}, {"Apr", 4},
+		{"May", 5}, {"Jun", 6}, {"Jul", 7}, {"Aug", 8},
+		{"Sep", 9}, {"Oct",10}, {"Nov",11}, {"Dec",12}
+};
+
+std::string escapeLiteral(char c) 
+{
+	static const std::string regexSpecial = R"(\.^$|()[]*+?{})";
+	if (regexSpecial.find(c) != std::string::npos) return "\\" + std::string(1, c);
+	return std::string(1, c);
+}
+
+// dynamic parser
+// - given a log format string with captured groups (eg. IP, DATE, PAGE)
+// - construct a regex pattern that matches it (FormatToRegex)
+// - then apply the regex pattern to every line of the input log file (ParseInput)
+// - and convert the resulting matches into a loginfo struct (ConvertToLog)
+//
+std::string FormatToRegex(const std::string& format, defList& groupLabels) 
+{
+	std::string pattern;
+	size_t i = 0;
+
+	while (i < format.size()) {
+		if (format[i] == '{') {
+			size_t end = format.find('}', i);
+			if (end == std::string::npos) throw std::runtime_error("Unmatched { in format");
+
+			std::string token = format.substr(i + 1, end - i - 1);
+			auto it = tokenToRegex.find(token);
+			if (it != tokenToRegex.end()) {
+				pattern += it->second.pattern;     // Capturing group
+				groupLabels.push_back( TokenDef(it->second.type, token) );      // For result vector
+			}
+			else {
+				throw std::runtime_error("Unknown token: " + token);
+			}
+			i = end + 1;
+		} else if (format[i] == '*') {
+			pattern += R"(.*?)";  // Non-capturing wildcard
+			++i;
+		}	else {
+			pattern += escapeLiteral(format[i]);  // Exact literal match
+			++i;
+		}
+	}
+	return pattern;
+}
+
+std::vector<std::string> ParseInput(const std::string& pattern, const std::string& input) 
+{
+	std::regex rgx(pattern);
+	std::smatch match;
+	std::vector<std::string> results;
+
+	if (std::regex_search(input, match, rgx)) {
+		for (size_t i = 1; i < match.size(); ++i) {
+			results.push_back(match[i].str());
+		}
+	}
+	return results;
+}
+
+char ConvertToLog ( LogInfo& li, char typ, std::string str )
+{
+	int day, mo, yr, hr, min, sec;
+	std::string val;
+	size_t p1, p2, p3;
+	Vec4F vec;
+
+	switch (typ) {
+	case T_IP:
+		vec = strToVec4("<" + str + ">", '.');
+		if (vec.x == 255 || vec.y == 255 || vec.z == 255 || vec.w == 255) {			// limitation of logrip, 255 not allowed as part of literal (specific) IP
+			li.ip = 0;
+			return 'i';		// printf("**** ERROR: %s\n  IP: %s", buf, str.c_str());			
+		}
+		else {
+			li.ip = vecToIP(vec);
+		}
+		break;
+	case T_DATE_DDMMMYY: {
+		p1 = str.find_first_of('/');					if (p1 == std::string::npos) return 'd';
+		p2 = str.find_first_of('/', p1 + 1);	if (p2 == std::string::npos) return 'd';
+		day = strToI(str.substr(0, p1));
+		val = str.substr(p1 + 1, p2 - p1 - 1); auto it = monthMap.find(val); mo = (it == monthMap.end()) ? 0 : it->second;
+		yr = strToI(str.substr(p2 + 1));
+		li.date.SetDate (mo, day, yr);
+	} break;
+	case T_DATE_YYYY_MM_DD: {
+		p1 = str.find_first_of('-');					if (p1 == std::string::npos) return 'd';
+		p2 = str.find_first_of('-', p1 + 1);		if (p2 == std::string::npos) return 'd';
+		yr = strToI(str.substr(0, p1));
+		mo = strToI(str.substr(p1 + 1, p2 - p1 - 1));
+		day = strToI(str.substr(p2 + 1));
+		li.date.SetDate(mo, day, yr);
+	} break;
+	case T_TIME_HHMMSS:
+		p1 = str.find_first_of(':');					if (p1 == std::string::npos) return 't';
+		p2 = str.find_first_of(':', p1 + 1);	if (p2 == std::string::npos) return 't';
+		hr = strToI(str.substr(0, p1));
+		min = strToI(str.substr(p1 + 1, p2 - p1 - 1));
+		sec = strToI(str.substr(p2 + 1));
+		li.date.SetTime(hr, min, sec);
+		break;
+	case T_PAGE:
+		li.page = str;
+		break;
+	};
+	return 1;
+}
 
 void LogRip::LoadLog (std::string filename)
 {
-	std::string lin, remain, page, ipstr, datestr, str;
-	char buf[65535];
-	TimeX t;
-	bool ok; 
-	Vec4F ipvec;
+	std::string lin, str, val;
+	char buf[65535];	
+	bool ok; 		
+	std::string reason;
+	Vec4F vec;
+	LogInfo li;
+	char ret;
+
+	bool debug_parse = false;
 
 	strncpy ( buf, filename.c_str(), 65535 );
 	FILE* fp = fopen (buf, "r" );
@@ -263,106 +419,68 @@ void LogRip::LoadLog (std::string filename)
 	printf ( "Reading log: %s\n", filename.c_str() );
 
 	int maxlog = 1e9;
-	long cnt = 0, perc = 0, percl = 0;
+	long perc = 0, percl = 0;
+	long hits = 0, skipped = 0;
+	char typ;
 
 	fseek(fp, 0, SEEK_END);
 	long size = 0;
   long max_size = ftell(fp)/1000;
 	fseek(fp, 0, SEEK_SET);
 
-	while (!feof(fp) && cnt < maxlog ) {
+	defList groupLabels;
+	// std::string format = "{X.X.X.X} {AAA} {AAA} [{DD/MMM/YYYY}:{HH:MM:SS} +{NNN}] \"{GET} {PAGE}HTTP/*\" {RETURN} {BYTES} \"*\" {PLATFORM}";
+	std::string format = "* Started {GET} \"{PAGE}\" for {X.X.X.X} at {YYYY-MM-DD} {HH:MM:SS}";
+	std::string regexPattern = FormatToRegex ( format, groupLabels );
 
+	while (!feof(fp) && hits < maxlog ) {
+
+		// read next line
 		fgets ( buf, 65535, fp );
 		lin = buf;
 
+		// report percentage complete
 		size = ftell(fp)/1000;
 		perc = (size*100)/max_size; 
-		if ( (perc % 10)==0 && perc != percl) {
+		if ( (perc % 5)==0 && perc != percl) {
 			percl = perc;
-			printf ( " %ld%%", perc );
+			printf ( " %ld%%. %d read, %d skipped.\n", perc, hits, skipped );
 		}
+		if (debug_parse) printf("\n===== %s", lin.c_str());
 
-		//dbgprintf("===== %s", lin.c_str());
-
-		// get page
-		ok = strParseOutStr(lin, "\"GET", " HTTP/1", page, remain);
-		if (!ok) continue;
-		page = strTrim(page, " \"");
-		lin = remain;
-
-		// get IP
-		ipstr = lin.substr(0, lin.find_first_of(' ') );
-		ipvec = strToVec4("<" + ipstr + ">", '.');
+		// clear parsing 
+		li.clear();				
 		
-		// get datetime
-		int mo;
-		std::string str;
-		ok = strParseOutStr(lin, "[", "+0000]", datestr, remain);
-		if (!ok) continue;
-		lin = remain;
-		str = strSplitLeft ( datestr, "/" );
-		int day = strToI( str );
-		str = strSplitLeft ( datestr, "/" );
-		if (str.compare("Jan")==0) mo = 1;
-		else if (str.compare("Feb") == 0) mo = 2;
-		else if (str.compare("Mar") == 0) mo = 3;
-		else if (str.compare("Apr") == 0) mo = 4;
-		else if (str.compare("May") == 0) mo = 5;
-		else if (str.compare("Jun") == 0) mo = 6;
-		else if (str.compare("Jul") == 0) mo = 7;
-		else if (str.compare("Aug") == 0) mo = 8;
-		else if (str.compare("Sep") == 0) mo = 9;
-		else if (str.compare("Oct") == 0) mo = 10;
-		else if (str.compare("Nov") == 0) mo = 11;
-		else if (str.compare("Dec") == 0) mo = 12;
-		str= strSplitLeft (datestr, ":");		int yr = strToI ( str );		
-		str = strSplitLeft(datestr, ":");		int hr = strToI ( str );
-		str = strSplitLeft(datestr, ":");		int min = strToI ( str );
-		int sec = strToI( datestr.substr(0,2) );
+		// parse this line
+		std::vector<std::string> results = ParseInput ( regexPattern, lin );
 
-    t.SetDateTime ( yr, mo, day, hr, min, sec );  
-	
-		// dbgprintf("  %s: %s\n", datestr.c_str(), t.WriteDateTime().c_str()); 
-	
+		// process results
+		for (int n = 0; n < results.size(); n++) {
 
-		// get page
-		 /* ok = strParseOutStr(lin, "Started GET", "\" ", page, remain);		
-	  if (!ok) continue;
-		page = strTrim (page, " \"" );		
-		lin = remain;
+			typ = groupLabels[n].type;
+			str = results[n];			
 
-		// get IP
-		strParseOutStr (lin, "for ", " a", ipstr, remain);	
-		if (!ok) continue;		
-		lin = remain;
-		
-		Vec4F ipvec = strToVec4( "<"+ipstr+">", '.');				
-		//dbgprintf("   %s: %d . %d . %d . %d\n", ipstr.c_str(), (int) ipvec.x, (int) ipvec.y, (int) ipvec.z, (int) ipvec.w );
-
-		// get datetime	
-		strParseOutStr (lin, "t ", "\n", datestr, remain);		
-		if (!ok) continue;
-		t.ReadDateTime ( datestr );  // assumes: YYYY-MM-DD HH:MM:SS
-		lin = remain;
-		//dbgprintf ( "  %s: %s\n", datestr.c_str(), t.WriteDateTime().c_str() );  */
-
-		
-		if (ipvec.x == 255 || ipvec.y == 255 || ipvec.z == 255 || ipvec.w == 255) {
-			printf ( "**** ERROR: %s\n  IP: %s", buf, ipstr.c_str() );
-			//exit(-7);
-		} else {
-
-			// all fields ok
-			LogInfo li;
-			li.date = t;
-			li.ip = vecToIP(ipvec);
-			li.page = page;
-			m_Log.push_back ( li ); 
-
-			cnt++;
+			ret = ConvertToLog (li, typ, str);
 		}
+		
+		// add item to log (if valid)
+		if (li.isValid()) {
+			if (debug_parse) printf("   OK. LOG: DATE=%s, IP=%s, PAGE=%s\n", li.date.WriteDateTime().c_str(), ipToStr(li.ip).c_str(), li.page.c_str());
+			m_Log.push_back(li);
+			hits++;
 
-		//dbgprintf("log: %15s, %s, %s\n", li.page.c_str(), li.date.WriteDateTime().c_str(), ipToStr(li.ip).c_str());
+		}	else {
+			skipped++;
+			if (debug_parse) {
+				if (results.size() == 0) reason = "Failed to match.";
+				else if (ret == 'i') reason = "IP not handled (contains 255).";
+				else if (li.ip == 0) reason = "No IP found.";
+				else if (li.date.isEmpty()) reason = "No date found.";
+				else if (li.page.empty()) reason = "No page found."; 
+			  printf("   SKIPPED. Reason: %s\n", reason.c_str() );
+			}
+		}
+		
 	}
 
 	printf("\n" );
@@ -832,11 +950,10 @@ void LogRip::OutputVis ()
 	bool block;
 
 	// day grid
-	for (int d = 0; d < m_total_days; d++) {
-		for (y = 0; y < yr; y++) {
-			x = d * xr / float(m_total_days);
-			for (int i = 0; i < I_NUM; i++)
-				m_img[i].SetPixel(x, y, Vec4F(128, 128, 128, 255));
+	for (int d = 0; d < m_total_days; d++) {		
+		x = d * xr / float(m_total_days);
+		for (int i = 0; i < I_NUM; i++) {
+			m_img[i].Line(x, 0, x, yr, Vec4F(0,128,0,255) );
 		}
 	}
 
@@ -908,6 +1025,7 @@ void LogRip::OutputLoads (std::string filename)
 
 	int first = 0;
 	float first_tm = 10e10;
+
 	for (int j = 0; j < m_Log.size(); j++) {
 		if (m_Log[j].date.GetDays() < first_tm) {
 			first = j;
@@ -919,7 +1037,7 @@ void LogRip::OutputLoads (std::string filename)
 	int b;
 	TimeX t;
 	Vec4F pal[7];
-	pal[0].Set(0, 0, 0, 255);			// no blocking - grey
+	pal[0].Set(120, 120, 120, 255);			// no blocking - grey
 	pal[1].Set(255,0,0,255);					// after throttle - red
 	pal[2].Set(255,128,0,255);				// after consec - orange
 	pal[3].Set(255,255, 0, 255);		  // after range - yellow
@@ -933,14 +1051,22 @@ void LogRip::OutputLoads (std::string filename)
 		yl[k] = 0;
 	}
 
+	// day grid
+	for (int d = 0; d < m_total_days; d++) {
+		x = d * xr / float(m_total_days);
+		for (int i = 0; i < I_NUM; i++) {
+			m_img[i].Line(x, 0, x, yr, Vec4F(0, 128, 0, 255));
+		}
+	}
+
 	// load duration per hit
   // - this is the average server response time (impact) for a single hit
-	float load_duration = 60;					// in seconds
-	float vert_scale = 20;	
+	float load_duration = 120;					// in seconds
+	float vert_scale = 60;	
 	
 	// plot 
 	xl = 0;
-	for (int x = 0; x < xr; x+= 4) {
+	for (x = 0; x < xr; x++) {
 
 		// get real datetime for this x-coord
 		t = m_Log[first].date;
@@ -974,7 +1100,8 @@ void LogRip::OutputLoads (std::string filename)
 		for (int k = 0; k <= 6; k++) {
 			if (k >=1 && k <=5 ) continue;
 			y[k] = (yr-1) - y[k] * vert_scale;
-			m_img[I_ORIG].Line (xl, yl[k], x, y[k], pal[k] );
+			//m_img[I_ORIG].Line (xl, yl[k], x, y[k], pal[k] );
+			m_img[I_ORIG].Line (x, yr, x, y[k], pal[k] );
 			yl[k] = y[k];
 		}	
 		xl = x;
@@ -1141,7 +1268,7 @@ bool LogRip::init()
   dbgprintf ("Copyright (c) 2024-2025, Quanta Sciences, Rama Hoetzlein\n");
   dbgprintf ("MIT License\n\n");
 
-  std::string logfile = std::string(ASSET_PATH) + std::string("ramakarl_master.txt");
+  std::string logfile = std::string(ASSET_PATH) + std::string("example_log.txt");
   
   LoadLog ( logfile );
 
@@ -1177,7 +1304,7 @@ bool LogRip::init()
   cnt = OutputIPs ( SUB_C, "out_ips_cnet.csv");
 	printf("%d ips.\n", cnt);
 
-	dbgprintf ( "Writing IPs... ");
+	dbgprintf ( "Writing IPs (All Mach)... ");
 	cnt = OutputIPs(SUB_D, "out_ips.csv");
 	printf("%d ips.\n", cnt);
 	
