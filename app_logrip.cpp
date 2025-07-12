@@ -27,6 +27,7 @@
 #include "httplib.h"
 using namespace httplib;
 
+// lookup fields
 #define L_STATUS		0
 #define L_COUNTRY		1
 #define L_REGION		2
@@ -38,10 +39,67 @@ using namespace httplib;
 #define L_ORG				8
 #define L_ASNAME		9
 
+// image types
 #define I_ORIG			0
 #define I_BLOCKED		1
 #define I_FILTERED	2
 #define I_NUM			  3
+
+// config fields
+int CONF_FORMAT = 0;
+int CONF_DEBUGPARSE = 1;
+
+
+
+enum class ValueType {
+  STRING,
+  FLOAT,
+  BOOL,
+  INT,
+  VEC4F,
+};
+
+// typeless value (C++11 compatible)
+class Value {
+public:
+  Value() {type=ValueType::STRING; s=""; b=false; i=0;}
+  Value(const std::string& str) : type(ValueType::STRING), s(str) {}
+  Value(float val)  : type(ValueType::FLOAT), f(val) {}
+  Value(bool val)   : type(ValueType::BOOL),  b(val) {}
+  Value(int val)    : type(ValueType::INT),   i(val) {}
+  Value(const Vec4F& v) : type(ValueType::VEC4F), vec(v) {}
+  Value(const Value& other) { *this = other; }
+  void SetValue(const std::string& str);
+  Value& operator=(const Value& other) {
+    if (this != &other) {
+        type = other.type;
+        switch (type) {
+        case ValueType::STRING: s = other.s; break;
+        case ValueType::BOOL:   b = other.b; break;
+        case ValueType::INT:    i = other.i; break;
+        case ValueType::FLOAT:  f = other.f; break;
+        case ValueType::VEC4F:  vec = other.vec; break;
+        }
+    }
+    return *this;
+  }
+  ValueType   type;
+  std::string s;
+  union 
+  {
+    float     f;
+    bool      b;
+    int       i;
+    Vec4F     vec;
+  };
+};
+
+// config key-value
+struct ConfigEntry {
+  int           key;
+  std::string   name;
+  Value         val;  
+};
 
 // log entry
 struct LogInfo {
@@ -115,6 +173,18 @@ public:
 	virtual bool init();
 	virtual void display();
 
+  // config file
+  void LoadConfig ( std::string filename );
+  void SetConfigValue (const std::string& name, std::string value );
+  void SetDefaultConfig ();
+  Value getVal(int k, ValueType t);
+  float getF(int k) { Value v = getVal(k, ValueType::FLOAT); return v.f; }
+  int   getI(int k) { Value v = getVal(k, ValueType::INT);   return v.i; }
+  bool  getB(int k) { Value v = getVal(k, ValueType::BOOL);  return v.b; }
+  Vec4F getV4(int k) { Value v = getVal(k, ValueType::VEC4F); return v.vec; }
+  std::string getStr(int k) { Value v = getVal(k, ValueType::STRING); return v.s; }
+
+  // loading logs
 	void LoadLog ( std::string filename );
 	void InsertLog(LogInfo i, int lev );
 	void InsertIP(IPInfo i, int lev );
@@ -124,6 +194,8 @@ public:
 	void InsertDayInfo ( TimeX day, LogInfo& i );	
 	void SortPagesByTime(std::vector<LogInfo>& pages);
 	void SortPagesByName(std::vector<LogInfo>& pages);
+
+  // compute metrics & blocklist
 	void ComputeDailyMetrics (IPInfo* f);
 	void ComputeScore ( IPInfo* f );
   void ComputeBlocklist ();
@@ -131,6 +203,8 @@ public:
 	void ConstructIPHash();	
 	void ConstructSubnet (int src_lev, int dest_lev);		
 	void CreateImg (int xr, int yr);	
+
+  // output results
   void OutputBlocklist (std::string filename);
 	void OutputPages( std::string filename );
 	int OutputIPs(int outlev, std::string filename);
@@ -144,11 +218,13 @@ public:
 	TimeX			m_date_max;
 	int				m_total_days;
 
-	std::vector< LogInfo >	m_Log;	
+	std::vector< LogInfo >	m_Log;
 
 	IPMap_t									m_IPList[SUB_MAX];	
 
 	std::vector< DayInfo >	m_DayList;
+
+  std::vector<ConfigEntry> m_Config;
 
 	ImageX		m_img[4];	
 };
@@ -213,6 +289,93 @@ uint32_t getMaskedIP(uint32_t ip, int lev)
 	uint32_t mask = getMask(lev);	
 	uint32_t mip = (ip & mask) | (~mask & 0xFFFFFFFF);	
 	return mip;
+}
+
+void Value::SetValue ( const std::string& str)
+{
+  switch ( type ) {
+  case ValueType::BOOL:   b = (str=="1") ? true : false; break;
+  case ValueType::FLOAT:  f = strToF(str); break;
+  case ValueType::INT:    i = strToI(str); break;
+  case ValueType::STRING: s = str; break;
+  case ValueType::VEC4F:  vec = strToVec4(str, ','); break;
+  }
+}
+Value LogRip::getVal(int k, ValueType t) 
+{ 
+  ConfigEntry& e = m_Config[k];
+  return (e.val.type==t) ? e.val : Value();
+}
+
+
+void LogRip::SetConfigValue (const std::string& name, std::string value )
+{
+  for (int i=0; i < m_Config.size(); i++) {
+    if (m_Config[i].name == name) {
+     if (i != m_Config[i].key) {
+       printf ("ERROR: Config list order in LoadConfig must match CONF const order.\n");
+       exit(-77);
+     }
+     m_Config[i].val.SetValue(value); 
+     return;
+    }
+  }
+  printf ("**** ERROR: Config key %s not known. Ignored.\n", name.c_str() );
+}
+
+void LogRip::SetDefaultConfig ()
+{
+  SetConfigValue ( "format", "{X.X.X.X} {AAA} {AAA} [{DD/MMM/YYYY}:{HH:MM:SS} +{NNN}] \"{GET} {PAGE}HTTP/*\" {RETURN} {BYTES} \"*\" {PLATFORM}" );
+  SetConfigValue ( "debugparse", "0");
+
+}
+
+
+void LogRip::LoadConfig ( std::string filename )
+{
+  // setup config key & values
+  m_Config = {
+    {CONF_FORMAT,     "format",     Value(std::string("")) },
+    {CONF_DEBUGPARSE, "debugparse", Value(false) }
+  };
+
+  if (filename.empty()) {
+    printf ("**** WARNING: No config file specified.\n" );
+    printf ( "Using default config (Apache2).\n");
+    SetDefaultConfig ();
+    return;
+  }
+  std::string conf_file;
+  if (!getFileLocation(filename, conf_file)) {
+    printf ( "**** ERROR: Unable to find or open config file: %s\n", filename.c_str() );
+    exit(-1);
+  }  
+
+	printf ("Loading config: %s\n", conf_file.c_str() );
+
+  // read config file
+  char buf[2048];
+  std::string key, val;
+  strncpy ( buf, conf_file.c_str(), 2048 );
+	FILE* fp = fopen (buf, "r" );
+	if (fp == 0x0) {
+		printf ( "**** ERROR: Unable to open %s\n", filename.c_str() );
+    printf ( "Using default config (Apache2).\n");
+    SetDefaultConfig ();
+		return;
+	}
+	while (!feof(fp)) {
+	  fgets ( buf, 2048, fp );
+    val = buf;
+
+    key = strSplitLeft ( val, ":" );
+    val = strTrim(val);
+    if (!val.empty()) SetConfigValue ( key, val );
+  }
+
+  std::string format = getStr(CONF_FORMAT);
+  printf (" Using format: %s\n", format.c_str() );
+  printf ("\n");
 }
 
 
@@ -411,7 +574,7 @@ void LogRip::LoadLog (std::string filename)
 	LogInfo li;
 	char ret;
 
-	bool debug_parse = false;
+	bool debug_parse = getB(CONF_DEBUGPARSE);
 
 	strncpy ( buf, filename.c_str(), 65535 );
 	FILE* fp = fopen (buf, "r" );
@@ -433,7 +596,8 @@ void LogRip::LoadLog (std::string filename)
 
 	defList groupLabels;
 	// std::string format = "{X.X.X.X} {AAA} {AAA} [{DD/MMM/YYYY}:{HH:MM:SS} +{NNN}] \"{GET} {PAGE}HTTP/*\" {RETURN} {BYTES} \"*\" {PLATFORM}";
-	std::string format = "* Started {GET} \"{PAGE}\" for {X.X.X.X} at {YYYY-MM-DD} {HH:MM:SS}";
+	// std::string format = "* Started {GET} \"{PAGE}\" for {X.X.X.X} at {YYYY-MM-DD} {HH:MM:SS}";
+  std::string format = getStr( CONF_FORMAT );
 	std::string regexPattern = FormatToRegex ( format, groupLabels );
 
 	while (!feof(fp) && hits < maxlog ) {
@@ -448,6 +612,13 @@ void LogRip::LoadLog (std::string filename)
 		if ( (perc % 5)==0 && perc != percl) {
 			percl = perc;
 			printf ( " %ld%%. %ld read, %ld skipped.\n", perc, hits, skipped );
+      if (skipped > hits && hits==0) {
+        printf ("*** ERROR: Log not read. Likely a format issue.\n");
+        printf ("Be sure that the format string in your .conf matches the log input.\n");
+        printf ("See logrip instructions. You can also set debugparse=1 to test format strings.\n");
+        printf ("STOPPED.\n");
+        exit(-7);
+      }
 		}
 		if (debug_parse) printf("\n===== %s", lin.c_str());
 
@@ -1118,16 +1289,12 @@ void LogRip::OutputLoads (std::string filename)
 	int b;
 	TimeX t;
 	Vec4F pal[7];
-	pal[0].Set(120, 120, 120, 255);			// no blocking - grey
-	pal[1].Set(255,0,0,255);					// after throttle - red
-	pal[2].Set(255,128,0,255);				// after consec - orange
-	pal[3].Set(255,255, 0, 255);		  // after range - yellow
-	pal[4].Set(0,  255, 0, 255);			// after daymax - green
-  pal[5].Set(255, 0, 255, 255);     // after B net - purple
-	pal[6].Set(0, 0, 255, 255);				// after C net - blue
-
+	pal[0].Set(120, 120, 120, 255);		// no blocking - grey
+	pal[1].Set(120,120,255,255);					// B net - blue
+	pal[2].Set(160,0,160,255);				// C net - purple 
+	pal[3].Set(0,255, 0, 255);		    // all blocking - green
 	float load[7];
-	for (int k = 0; k <= 6; k++) {
+	for (int k = 0; k < 4; k++) {
 		load[k] = 0;
 		yl[k] = 0;
 	}
@@ -1160,37 +1327,30 @@ void LogRip::OutputLoads (std::string filename)
 			ds = m_Log[n].date.GetElapsedSec( t );			// delta in seconds
 			b = m_Log[n].block;
 			if (fabs(ds) < load_duration) {
-				for (int k=0; k <= 6; k++) y[k]++;			// increase load
+        // increase load from this event
+				for (int k=0; k < 4; k++) y[k]++;		
+        // reduce load due to blocking	
 				if (b > 0 ) {
-					if (b <= 1) y[1]--;				// throttle
-					if (b <= 2) y[2]--;				// consecutive
-					if (b <= 3) y[3]--;				// range
-					if (b <= 4) y[4]--;				// daymax
-					if (b <= 19) y[5]--;			// sub C
-					if (b <= 29) y[6]--;			// sub B
+        	if (b=='B') {y[1]--; y[2]--; y[3]--;}
+          if (b=='C') {y[2]--; y[3]--;}
+          if (b=='I') {y[3]--;}
 				}
 			}
 		}	
 		
-		// accumulated load		
-		for (int k = 0; k <= 6; k++) {
+		// accumulated load (all events)
+		for (int k = 0; k <= 4; k++) {
 			load[k] += y[k];					
 		}		
 
 		// plot loads
-		for (int k = 0; k <= 6; k++) {
-			if (k >=1 && k <=5 ) continue;
+		for (int k = 0; k <= 4; k++) {
 			y[k] = (yr-1) - y[k] * vert_scale;
-			//m_img[I_ORIG].Line (xl, yl[k], x, y[k], pal[k] );
 			m_img[I_ORIG].Line (x, yr, x, y[k], pal[k] );
 			yl[k] = y[k];
 		}	
 		xl = x;
 	}
-
-	/*for (int k = 0; k <= 6; k++) {
-			dbgprintf ( "  %d, load: %f\n", k, load[k] );
-	}*/
 
 	m_img[I_ORIG].Save("out_load.png");
 }
@@ -1349,9 +1509,18 @@ bool LogRip::init()
   dbgprintf ("Copyright (c) 2024-2025, Quanta Sciences, Rama Hoetzlein\n");
   dbgprintf ("MIT License\n\n");
 
-  //std::string logfile = std::string(ASSET_PATH) + std::string("csi_log_2025_02_12.txt");
-  std::string logfile = std::string(ASSET_PATH) + std::string("example_log.txt");
-  
+  addSearchPath ( ASSET_PATH );
+  addSearchPath ( "." );
+
+  LoadConfig ("ruby.conf");
+
+  std::string filename = std::string("csi_log_2025_02_12.txt");
+  std::string logfile;
+  if (!getFileLocation(filename, logfile)) {
+    printf ( "**** ERROR: Unable to find or open %s\n", filename.c_str() );
+    exit(-1);
+  }  
+
   LoadLog ( logfile );
 
 	dbgprintf("Construct IP Hash.\n");

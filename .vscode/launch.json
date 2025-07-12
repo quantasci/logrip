@@ -4,9 +4,9 @@
       "name": "Debug (with Args)",
       "type": "cppdbg",
       "request": "launch",      
-      "program": "${command:cmake.buildDirectory}/logrip",      
+      "program": "${command:cmake.buildDirectory}/logripd",      
 
-      "args": ["example_log.txt"],
+      "args": ["example_log.txt ruby.conf"],
       
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
