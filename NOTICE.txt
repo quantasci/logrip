@@ -1,5 +1,5 @@
 NOTICE
-This product includes software developed by Quanta Sciecnes, Rama Hoetzlein
+This product includes software developed by Quanta Sciences, Rama Hoetzlein
 and its contributors.
 Copyright 2024-2025 Quanta Sciences, Rama Hoetzlein
 
