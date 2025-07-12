@@ -1,6 +1,5 @@
 ## Logrip
-Defend against AI servers & bots with server log analysis.
-
+Defend against AI crawlers & bots with server log analysis.
 
 Copyright (c) Quanta Sciences, 2024-2025<br>
 Rama Karl Hoetzlein, https://ramakarl.com<br>
