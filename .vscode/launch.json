@@ -4,7 +4,7 @@
       "name": "Debug (with Args)",
       "type": "cppdbg",
       "request": "launch",      
-      "program": "${command:cmake.buildDirectory}/logripd",      
+      "program": "${command:cmake.buildDirectory}/logrip",      
 
       "args": ["example_log.txt"],
       

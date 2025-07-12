@@ -41,7 +41,7 @@ using namespace httplib;
 #define I_ORIG			0
 #define I_BLOCKED		1
 #define I_FILTERED	2
-#define I_NUM				3
+#define I_NUM			  3
 
 // log entry
 struct LogInfo {
@@ -51,7 +51,7 @@ struct LogInfo {
 	TimeX					date;
 	std::string		page;
 	uint32_t			ip;
-	int						block;
+	char          block;
 };
 
 
@@ -67,7 +67,8 @@ struct IPInfo {
   int       lev;
   uint32_t  ip;
 
-  int    block;           // blocklist score
+  int    score;           // blocklist score
+  char   block;           // blocklist action
 
   TimeX  start_date;      // start range of access
   TimeX  end_date;        // end range of access
@@ -125,10 +126,12 @@ public:
 	void SortPagesByName(std::vector<LogInfo>& pages);
 	void ComputeDailyMetrics (IPInfo* f);
 	void ComputeScore ( IPInfo* f );
+  void ComputeBlocklist ();
 	void LookupName (IPInfo* f);
 	void ConstructIPHash();	
 	void ConstructSubnet (int src_lev, int dest_lev);		
 	void CreateImg (int xr, int yr);	
+  void OutputBlocklist (std::string filename);
 	void OutputPages( std::string filename );
 	int OutputIPs(int outlev, std::string filename);
 	int OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp);
@@ -444,7 +447,7 @@ void LogRip::LoadLog (std::string filename)
 		perc = (size*100)/max_size; 
 		if ( (perc % 5)==0 && perc != percl) {
 			percl = perc;
-			printf ( " %ld%%. %d read, %d skipped.\n", perc, hits, skipped );
+			printf ( " %ld%%. %ld read, %ld skipped.\n", perc, hits, skipped );
 		}
 		if (debug_parse) printf("\n===== %s", lin.c_str());
 
@@ -679,27 +682,35 @@ void LogRip::ComputeDailyMetrics ( IPInfo* f)
 
 void LogRip::ComputeScore (IPInfo* f)
 {	
-	int block = 0;
+	// blocking score
+  // example:	
+  // +1  rate throttle (daily hit > 20, ppm > 20)
+	// +2  consecusive metric (days > 5, hr/day > 6)
+	// +3  daily range (hr/day > 6)
+	// +4  day thottle (hits/day > 100)
+  // +5  subnet (# ips > 40)
+	// +10 subnet C (/w any other blocking)
+	// +20 subnet B (/w any other blocking)
 
-	if (f->lev == SUB_C) {
-		if (f->ip_cnt < 10) return;
-		if (f->ip_cnt > 40) block = 5;
-	} 
-	
-	if (f->lev == SUB_B) {
-		if (f->ip_cnt < 20) return;
-	}	
+  int min_ip_b = 10;
+  int min_ip_c = 3;
+  int max_ip_c = 40;
 
-	//if (f->num_robots > 3 ) block = 5;
-	if (f->daily_max_hit > 100) block = 4;
-	if (f->daily_max_range > 6 * 60) block = 3;
-	if (f->max_consecutive >= 5 && f->daily_max_range > 6*60) block = 2;
-  if (f->daily_ave_hit > 20 && f->daily_max_ppm > 20 ) block = 1;
+	int score = 0;
 
-	if (f->lev == SUB_C && block != 1) block += 10;
-	if (f->lev == SUB_B && block != 1) block += 20;
+  if (f->lev == SUB_B && f->ip_cnt < min_ip_b) return;
+	if (f->lev == SUB_C && f->ip_cnt < min_ip_c) return;
+  
+  if (f->lev == SUB_C && f->ip_cnt > max_ip_c) score = 6;
+  if (f->num_robots > 3 ) score = 5;
+	if (f->daily_max_hit > 100) score = 4;
+	if (f->daily_max_range > 6 * 60) score = 3;
+	if (f->max_consecutive >= 5 && f->daily_max_range > 4*60) score = 2;
+  if (f->daily_ave_hit > 20 && f->daily_max_ppm > 20 ) score = 1;
 
-	f->block = block;
+	f->score = score;
+  
+  f->block = 0;  // blocking action not computed here
 }
 
 
@@ -808,7 +819,8 @@ void LogRip::InsertIP ( IPInfo i, int dest_lev )
 		it = list.insert(it, std::make_pair(i.ip, info));		
 		f = &(it->second);
 		f->lev = dest_lev;
-		f->block = 0;
+		f->score = 0;
+    f->block = 0;
 		f->start_date = i.start_date;
 		f->end_date = i.end_date;
 		f->daily_min_hit = i.daily_min_hit;
@@ -922,6 +934,99 @@ void LogRip::OutputHits ( std::string filename )
 }
 
 
+void LogRip::ComputeBlocklist ()
+{
+  IPMap_t* list;
+	std::map<uint32_t, IPInfo>::iterator it;
+  IPInfo* f;
+  IPInfo *fb, *fc, *fd;
+
+  int score_min = 1;
+  int score_max = 29;
+
+  // Class B Blocking
+	list =  &m_IPList[ SUB_B ];
+	for (it = list->begin(); it != list->end(); it++) {
+    fb = &it->second;	
+    if (fb->score >= score_min && fb->score <= score_max ) {
+				fb->block = 'B';        // block by B subnet, highest level (we don't block at A subnet level)
+    }
+	}
+
+  // Class C Blocking
+	list =  &m_IPList[ SUB_C ];
+	for (it = list->begin(); it != list->end(); it++) {
+    fc = &it->second;
+    fb = FindIP(fc->ip, SUB_B);
+    if (fb != 0x0 && fb->block !=0 ) {
+      fc->block = fb->block;  // block by parent
+    } else if (fc->score >= score_min && fc->score <= score_max ) {
+      fc->block = 'C';        // block by C-net
+    }
+	}
+
+  // IP-Level Blocking
+	list =  &m_IPList[ SUB_D ];
+	for (it = list->begin(); it != list->end(); it++) {
+    fd = &it->second;	
+    fc = FindIP(fd->ip, SUB_C);
+    if (fc != 0x0 && fc->block !=0 ) {
+      fd->block = fc->block;    // block by parent
+    } else if (fd->score >= score_min && fd->score <= score_max ) {
+      fd->block = 'I';          // block IP
+    }
+	}
+
+  // Map IP blocklist back to log events 
+	for (int n = 0; n < m_Log.size(); n++) {
+		LogInfo& i = m_Log[n];
+    // find IP 
+		fd = FindIP(i.ip, SUB_D);
+    m_Log[n].block = fd->block;
+  }
+
+}
+
+void LogRip::OutputBlocklist (std::string filename)
+{
+	char buf[16384];
+	FILE* fp;	
+
+	strncpy ( buf, filename.c_str(), 16384);
+	fp = fopen( buf , "wt");
+	if (fp == 0x0) {
+		dbgprintf("ERROR: Unable to open %s for writing.\n", filename.c_str() );
+		exit(-1);
+	}
+
+  IPMap_t* list;
+	std::map<uint32_t, IPInfo>::iterator it;
+  IPInfo* f;
+  
+  // Class B Blocking
+	list =  &m_IPList[ SUB_B ];
+	for (it = list->begin(); it != list->end(); it++) {
+    f = &it->second;	
+    if (f->block == 'B') fprintf (fp, "%s/16\n", ipToStr(f->ip).c_str());
+	}
+
+  // Class C Blocking
+	list =  &m_IPList[ SUB_C ];
+	for (it = list->begin(); it != list->end(); it++) {
+    f = &it->second;
+    if (f->block =='C') fprintf (fp, "%s/24\n", ipToStr(f->ip).c_str() );
+	}
+
+  // IP-Level Blocking
+	list =  &m_IPList[ SUB_D ];
+	for (it = list->begin(); it != list->end(); it++) {
+    f = &it->second;	
+    if (f->block =='I') fprintf (fp, "%s\n", ipToStr(f->ip).c_str() );
+	}
+
+  fclose(fp);
+}
+
 void LogRip::OutputVis ()
 {
 	int xr = m_img[0].GetWidth();
@@ -943,11 +1048,11 @@ void LogRip::OutputVis ()
 	m_img[I_BLOCKED].Fill(255, 255, 255, 255);
 	m_img[I_FILTERED].Fill(255, 255, 255, 255);
 
+  Vec4F black(0,0,0,255);
 
 	int x, x1, x2, y;
-	Vec4F clr_orig, clr_block, clr_filter;
-	IPInfo* fd, * fc, * fb;
-	bool block;
+	Vec4F clr_block;
+	IPInfo *f;
 
 	// day grid
 	for (int d = 0; d < m_total_days; d++) {		
@@ -960,55 +1065,31 @@ void LogRip::OutputVis ()
 	for (int n = 0; n < m_Log.size(); n++) {
 
 		LogInfo& i = m_Log[n];
-
+    // get time & ip
 		float tm = i.date.GetDays() - first_tm;
 		Vec4F ipvec = ipToVec(i.ip);
 		float ip = ipvec.x * 256 + ipvec.y + (ipvec.z / 256.0f);
-
-		fd = FindIP(i.ip, SUB_D);
-		fc = FindIP(i.ip, SUB_C);
-		fb = FindIP(i.ip, SUB_B);
-
+		
 		// graph point
-		x = tm * xr / float(m_total_days);
-		y = yr - ip * yr / float(224 * 256);			// use only 3/4 of graph area, where top is max IPv4 224.0.0.0 (above this is multicast/special)
+		x = tm * xr / float(m_total_days);    // x-axis = time
+		y = yr - ip * yr / float(224 * 256);	// y-axis = ip,   mask off above IPv4 224.0.0.0 (multicast/special area)
 
-		clr_orig = Vec4F(0, 0, 0, 255);
 		clr_block = Vec4F(128, 128, 128, 255);
-		clr_filter = Vec4F(0, 0, 0, 255);
-		block = false;
 
-		// class D blocking
-		if (fd->block >= show_min && fd->block <= show_max) {
-			clr_block.Set(255, 0, 0, 255); block = true;
-		}
-		else if (fd->block > 0 && fd->block < show_min) {
-			clr_block.Set(240, 240, 240, 255); clr_orig = clr_block; block = true;
-		}
-		// class C blocking
-		if (fc != 0x0 && fc->ip_cnt > 1) {
-			if (fc->block >= show_min && fc->block <= show_max) {
-				clr_block.Set(255, 0, 255, 255); block = true;
-			}
-			else if (fc->block > 0 && fc->block < show_min) {
-				clr_block.Set(240, 240, 240, 255); clr_orig = clr_block; block = true;
-			}
-		}
-		// class B blocking
-		if (fb != 0x0 && fb->ip_cnt > 10) {
-			if (fb->block >= show_min && fb->block <= show_max) {
-				clr_block.Set(0, 0, 255, 255); block = true;
-			}
-			else if (fb->block > 0 && fb->block < show_min) {
-				clr_block.Set(240, 240, 240, 255); clr_orig = clr_block; block = true;
-			}
-		}
-		m_Log[n].block = imax(fd->block, imax(fc->block, fb->block));
-
-		if (block) clr_filter = clr_block;
-		m_img[I_ORIG].Dot(x, y, 3.0, clr_orig);
+		// set vis color based on blocking level
+		switch (i.block) {
+    case 'B': clr_block.Set(0, 0, 255, 255); break;
+    case 'C': clr_block.Set(255, 0, 255, 255); break;
+    case 'I': clr_block.Set(255, 0, 0, 255); break;
+    }
+    
+    // plot results:
+    // original image - all IPs, always black
+		m_img[I_ORIG].Dot(x, y, 3.0, black);
+    // blocked image - action taken
 		m_img[I_BLOCKED].Dot(x, y, 3.0, clr_block);
-		if (!block) m_img[I_FILTERED].Dot(x, y, 3.0, clr_filter);
+    // filtered image - only those not blocked 
+		if (i.block==0) m_img[I_FILTERED].Dot(x, y, 3.0, black);
 	}
 
 	m_img[I_ORIG].Save("out_fig1_orig.png");
@@ -1268,6 +1349,7 @@ bool LogRip::init()
   dbgprintf ("Copyright (c) 2024-2025, Quanta Sciences, Rama Hoetzlein\n");
   dbgprintf ("MIT License\n\n");
 
+  //std::string logfile = std::string(ASSET_PATH) + std::string("csi_log_2025_02_12.txt");
   std::string logfile = std::string(ASSET_PATH) + std::string("example_log.txt");
   
   LoadLog ( logfile );
@@ -1295,6 +1377,12 @@ bool LogRip::init()
 
 	dbgprintf ( "Processing IPs. B-Subnets.\n");
   ProcessIPs ( SUB_B );
+
+  dbgprintf ( "Computing Blocklist.\n");
+  ComputeBlocklist ();
+
+  dbgprintf ( "Writing Blocklist.\n");
+  OutputBlocklist ( "out_blocklist.txt" );
 
 	dbgprintf ( "Writing IPs (B-Subnets)... ");
 	cnt = OutputIPs(SUB_B, "out_ips_bnet.csv");
