@@ -1211,6 +1211,12 @@ void LogRip::OutputVis ()
 	int xr = m_img[0].GetWidth();
 	int yr = m_img[0].GetHeight();	
 
+  // zoom range for vis
+
+  //Vec4F range (0, 0, m_total_days, 224 );  
+  //Vec4F range(0, 0, 2, 224);
+  Vec4F range(9, 40, 10, 60);
+
 	int show_min = 1;
 	int show_max = 29;
 
@@ -1234,9 +1240,9 @@ void LogRip::OutputVis ()
 	IPInfo *f;
 
 	// day grid
-	for (int d = 0; d < m_total_days; d++) {		
-		x = d * xr / float(m_total_days);
-		for (int i = 0; i < I_NUM; i++) {
+	for (int d = 0; d <= m_total_days; d++) {		
+		x = (d-range.x)/(range.z+1-range.x) * xr;
+		for (int i = 0; i < I_NUM; i++) {      
 			m_img[i].Line(x, 0, x, yr, Vec4F(0,128,0,255) );
 		}
 	}
@@ -1250,8 +1256,8 @@ void LogRip::OutputVis ()
 		float ip = ipvec.x * 256 + ipvec.y + (ipvec.z / 256.0f);
 		
 		// graph point
-		x = tm * xr / float(m_total_days);    // x-axis = time
-		y = yr - ip * yr / float(224 * 256);	// y-axis = ip,   mask off above IPv4 224.0.0.0 (multicast/special area)
+		x = (tm-range.x)*xr/(range.z+1-range.x);                   // x-axis = time
+		y = yr - (ip-range.y*256)*yr/((range.w-range.y)*256);	   // y-axis = ip
 
 		clr_block = Vec4F(128, 128, 128, 255);
 
@@ -1275,7 +1281,6 @@ void LogRip::OutputVis ()
 	m_img[I_BLOCKED].Save("out_fig2_blocked.png");
 	m_img[I_FILTERED].Save("out_fig3_filtered.png");
 }
-
 
 void LogRip::OutputLoads (std::string filename)
 {
@@ -1522,7 +1527,7 @@ bool LogRip::init()
 
   LoadConfig ("ruby.conf");
 
-  std::string filename = std::string("csi_log_2025_02_12.txt");
+  std::string filename = std::string("csi_log_2025_02_03.txt");
   std::string logfile;
   if (!getFileLocation(filename, logfile)) {
     printf ( "**** ERROR: Unable to find or open %s\n", filename.c_str() );
