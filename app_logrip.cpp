@@ -169,6 +169,7 @@ struct DayInfo {
 	DayInfo(TimeX day)		{ date=day; pages.clear(); }
 	TimeX					date;
 	IPInfo				metrics;
+  Vec3I         stats;
 	std::vector<LogInfo>		pages;
 };
 
@@ -218,6 +219,7 @@ public:
 	int OutputIPs(int outlev, std::string filename);
 	int OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp);
 	void OutputHits (std::string filename);
+  void OutputStats (std::string filename, std::string imgname);
 	void OutputVis ();
 	void OutputLoads (std::string filename);
 	IPInfo* FindIP(uint32_t ip, int lev);
@@ -235,6 +237,8 @@ public:
   std::vector<ConfigEntry> m_Config;
 
 	ImageX		m_img[4];	
+
+  char      m_buf[65535];
 };
 
 LogRip logrip;
@@ -361,11 +365,9 @@ void LogRip::LoadConfig ( std::string filename )
 
 	printf ("Loading config: %s\n", conf_file.c_str() );
 
-  // read config file
-  char buf[2048];
-  std::string key, val;
-  strncpy ( buf, conf_file.c_str(), 2048 );
-	FILE* fp = fopen (buf, "r" );
+  // read config file  
+  std::string key, val;  
+	FILE* fp = fopen (conf_file.c_str(), "r" );
 	if (fp == 0x0) {
 		printf ( "**** ERROR: Unable to open %s\n", filename.c_str() );
     printf ( "Using default config (Apache2).\n");
@@ -373,8 +375,8 @@ void LogRip::LoadConfig ( std::string filename )
 		return;
 	}
 	while (!feof(fp)) {
-	  fgets ( buf, 2048, fp );
-    val = buf;
+	  fgets ( m_buf, 2048, fp );
+    val = m_buf;
 
     key = strSplitLeft ( val, ":" );
     val = strTrim(val);
@@ -574,8 +576,7 @@ char ConvertToLog ( LogInfo& li, char typ, std::string str )
 
 void LogRip::LoadLog (std::string filename)
 {
-	std::string lin, str, val;
-	char buf[65535];	
+	std::string lin, str, val;	
 	bool ok; 		
 	std::string reason;
 	Vec4F vec;
@@ -584,8 +585,7 @@ void LogRip::LoadLog (std::string filename)
 
 	bool debug_parse = getB(CONF_DEBUGPARSE);
 
-	strncpy ( buf, filename.c_str(), 65535 );
-	FILE* fp = fopen (buf, "r" );
+	FILE* fp = fopen (filename.c_str(), "r" );
 	if (fp == 0x0) {
 		printf ( "ERROR: Unable to open %s\n", filename.c_str() );
 		return;
@@ -608,11 +608,12 @@ void LogRip::LoadLog (std::string filename)
   std::string format = getStr( CONF_FORMAT );
 	std::string regexPattern = FormatToRegex ( format, groupLabels );
 
+
 	while (!feof(fp) && hits < maxlog ) {
 
 		// read next line
-		fgets ( buf, 65535, fp );
-		lin = buf;
+		fgets ( m_buf, 65535, fp );
+		lin = m_buf;
 
 		// report percentage complete
 		size = ftell(fp)/1000;
@@ -748,6 +749,7 @@ void LogRip::PrepareDays()
 	
 	TimeX curr_day = m_date_min;		// first day of data	
 
+  // prepare memory for days
 	for (int d = 0; d < m_total_days; d++) {
 		m_DayList.push_back ( DayInfo(curr_day) );
 		curr_day.AdvanceDays(1);
@@ -954,16 +956,6 @@ void LogRip::ProcessIPs( int lev )
 		dbgprintf ( "  daily ppm:   min %f, max %f (page/min)\n", f->daily_min_ppm, f->daily_max_ppm);
 		dbgprintf ( "  daily range: min %f, max %f (mins)\n", f->daily_min_range, f->daily_max_range);   */
     
-
-		if (f->daily_min_hit > 20 && f->daily_max_ppm > 20) {
-		//	_getch();
-		} 
-
-		if (f->daily_max_hit > 100) {
-		//	_getch();
-		}
- 
-
 		// compute the page time deltas (frequency)
 	  float d;
 		diffs.clear ();
@@ -1075,12 +1067,9 @@ void LogRip::CreateImg(int xr, int yr)
 }
 
 void LogRip::OutputHits ( std::string filename )
-{
-	char buf[16384];
+{	
 	FILE* outcsv;	
-
-	strncpy ( buf, filename.c_str(), 16384);
-	outcsv = fopen( buf , "wt");
+	outcsv = fopen(filename.c_str(), "wt");
 	if (outcsv == 0x0) {
 		dbgprintf("ERROR: Unable to open outhits.csv for writing.\n");
 		exit(-1);
@@ -1093,9 +1082,8 @@ void LogRip::OutputHits ( std::string filename )
 			first = j;
 			first_tm = m_Log[j].date.GetDays();
 		}
-	}
-	sprintf ( buf, "firstdate, %s\n", m_Log[first].date.WriteDateTime().c_str() );
-	fprintf ( outcsv, "%s", buf );
+	}  
+	fprintf ( outcsv, "firstdate, %s\n", m_Log[first].date.WriteDateTime().c_str() );
 		
 	for (int n = 0; n < m_Log.size(); n++) {
 		
@@ -1105,11 +1093,87 @@ void LogRip::OutputHits ( std::string filename )
 		Vec4F ipvec = ipToVec(i.ip);
 		float ip = ipvec.x*256 + ipvec.y + (ipvec.z/256.0f);
 
-		sprintf ( buf, "%f, %f\n", tm, ip );
-		fprintf ( outcsv, "%s", buf );
+		fprintf ( outcsv, "%f, %f\n", tm, ip);
 	}
 
 	fclose(outcsv);
+}
+
+void LogRip::OutputStats(std::string filename, std::string imgname)
+{
+  FILE* outcsv;
+  LogInfo* i;
+  Vec3I actions;
+
+  outcsv = fopen(filename.c_str(), "wt");
+  if (outcsv == 0x0) {
+    dbgprintf("ERROR: Unable to open %s for writing.\n", filename.c_str());
+    exit(-1);
+  }
+  
+  // re-use day structure for stats
+  for (int d = 0; d < m_total_days; d++) {
+    m_DayList[d].stats.Set(0,0,0);
+  }
+  
+  // insert every hit into day histogram
+  // - do not assume log is in time order
+  for (int n = 0; n < m_Log.size(); n++) {
+
+    LogInfo& i = m_Log[n];    
+
+    // determine actions taken
+    actions.Set(1, i.block != 0, i.block == 0);
+
+    // find and set day accordingly
+    int day = i.date.GetElapsedDays (m_date_min);
+    m_DayList[day].stats += actions;
+  }
+
+
+  int x1, x2, y1, y2;
+  Vec3F y;
+  int xr = m_img[0].GetWidth() - 1;
+  int yr = m_img[0].GetHeight() - 1;  
+  m_img[I_ORIG].Fill(255, 255, 255, 255);
+
+  // find total maximum (for plotting)
+  int ymax = 0;
+  for (int d = 0; d < m_total_days; d++) {
+    if (m_DayList[d].stats.x > ymax) ymax = m_DayList[d].stats.x;
+  }
+  // round up to nearest base-10 power
+  int power = (int) pow(10, (int)log10(ymax));
+  ymax = ((ymax + power - 1) / power) * power;  
+  if (ymax==0) ymax = 1;
+  for (int y = 0; y < ymax; y += ymax / 10) {
+    m_img[I_ORIG].Line (0, y*yr/ymax, xr, y*yr/ymax, Vec4F(100,100,100,1));
+  }
+  // output stats by day and visualize
+  std::string datestr;
+  float reduced;
+  fprintf(outcsv, "Date, All, Blocked, Allowed, Reduction\n");
+  for (int d = 0; d < m_total_days; d++) {
+    actions = m_DayList[d].stats;
+    reduced = float(actions.y)*100.0 / float(actions.x); 
+    datestr = m_DayList[d].date.WriteDateTime();    
+    printf ( "%s: All hits: %d, Blocked: %d, Allowed: %d, Reduction: %f%%\n", datestr.c_str(), actions.x, actions.y, actions.z, reduced);  
+    fprintf( outcsv, "%s, %d, %d, %d, %f\n", datestr.c_str(), actions.x, actions.y, actions.z, reduced );
+
+    x1 = float(d) * xr / m_total_days;
+    x2 = float(d+1)*xr / m_total_days;  
+    y1 = actions.x * yr / ymax;
+    y2 = actions.z * yr / ymax;    
+    for (int x=x1; x<x2; x++) {
+      m_img[I_ORIG].Line ( x, yr, x, yr-y1, Vec4F(255, 0, 0, 1));
+      m_img[I_ORIG].Line ( x, yr, x, yr-y2, Vec4F(0, 255, 0, 1));
+    }
+  }
+  printf ( " Vis range: %d days (x-axis), %d hits (y-axis)\n", m_total_days, ymax );
+
+  m_img[I_ORIG].Save ( imgname.c_str() );
+
+  fclose (outcsv);
 }
 
 
@@ -1164,15 +1228,14 @@ void LogRip::ComputeBlocklist ()
     m_Log[n].block = fd->block;
   }
 
+   
+
 }
 
 void LogRip::OutputBlocklist (std::string filename)
 {
-	char buf[16384];
 	FILE* fp;	
-
-	strncpy ( buf, filename.c_str(), 16384);
-	fp = fopen( buf , "wt");
+	fp = fopen(filename.c_str(), "wt");
 	if (fp == 0x0) {
 		dbgprintf("ERROR: Unable to open %s for writing.\n", filename.c_str() );
 		exit(-1);
@@ -1213,9 +1276,9 @@ void LogRip::OutputVis ()
 
   // zoom range for vis
 
-  //Vec4F range (0, 0, m_total_days, 224 );  
+  Vec4F range (0, 0, m_total_days, 224 );  
   //Vec4F range(0, 0, 2, 224);
-  Vec4F range(9, 40, 10, 60);
+  //Vec4F range(9, 40, 10, 60);
 
 	int show_min = 1;
 	int show_max = 29;
@@ -1393,7 +1456,6 @@ void LogRip::LookupName (IPInfo* f)
 
 int LogRip::OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp)
 {
-	char buf[2048];	
 	IPMap_iter it;
 	IPMap_t& list = m_IPList[lev];
 	IPInfo* f;
@@ -1421,14 +1483,14 @@ int LogRip::OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp)
 			float day_freq = f->visit_freq / f->elapsed;			// # secs/day
 			float uniq_ratio = (f->page_cnt > 0) ? ((float)f->uniq_cnt / f->page_cnt) : 0.0f;
 
-			snprintf(buf, 2048, "%s, %d, %d, %d, %.2f, %.2f, %d, %d, %f, %f, %f, %f, %f, %f, %s, %s, %s, %s\n",
+			snprintf(m_buf, 2048, "%s, %d, %d, %d, %.2f, %.2f, %d, %d, %f, %f, %f, %f, %f, %f, %s, %s, %s, %s\n",
 				ipstr.c_str(), f->ip_cnt, f->page_cnt, f->uniq_cnt,
 				uniq_ratio, f->elapsed,
 				f->max_consecutive, f->num_robots,
 				f->daily_min_hit, f->daily_min_range/60.0, f->daily_min_ppm, f->daily_max_hit, f->daily_max_range/60.0, f->daily_max_ppm,
 				f->lookup[L_ORG].c_str(), f->lookup[L_REGION].c_str(), f->lookup[L_COUNTRY].c_str(), pagename );
 						
-			if (fp) fwrite(buf, 1, strlen(buf), fp);
+			if (fp) fwrite(m_buf, 1, strlen(m_buf), fp);
 
 			cnt++;
 		
@@ -1453,11 +1515,10 @@ int LogRip::OutputIPs (int outlev, std::string filename )
 		dbgprintf ( "ERROR: Unable to open %s for writing.\n", fname);
 		exit(-1);
 	}	
-	// header 
-	char buf[1024];	
-	sprintf(buf, "IP, ip_cnt, page_cnt, uniq_cnt, uniq_ratio, elapsed(days), max_consec, num_robot, min_hit, min_hr, min_ppm, max_hit, max_hr, max_ppm, org, region, country, page\n");	
-
-	if (outcsv != 0x0) fprintf(outcsv, "%s", buf);
+	// header 	
+	if (outcsv != 0x0) {
+    fprintf(outcsv, "IP, ip_cnt, page_cnt, uniq_cnt, uniq_ratio, elapsed(days), max_consec, num_robot, min_hit, min_hr, min_ppm, max_hit, max_hr, max_ppm, org, region, country, page\n" );
+  }
 
 	// recursive
 	int cnt = OutputIPs ( outlev, SUB_A, vecToIP(Vec4F(255,255,255,255)), outcsv );	
@@ -1478,10 +1539,8 @@ void LogRip::OutputPages (std::string filename)
 		dbgprintf("ERROR: Unable to open %s for writing.\n", fname);
 		exit(-1);
 	}
-	// header
-	char buf[8192];
-	sprintf (buf, "IP, pages, cnt, page\n");	
-	if (outcsv != 0x0) fprintf(outcsv, "%s", buf);
+	// header		
+	if (outcsv != 0x0) fprintf(outcsv, "IP, pages, cnt, page\n");
 
 	IPMap_iter it;
 	IPMap_t& list = m_IPList[SUB_D];
@@ -1493,17 +1552,15 @@ void LogRip::OutputPages (std::string filename)
 		// sort pages by name 
 		SortPagesByName(f.pages);
 
-		sprintf(buf, "%s, %d,,\n", ipToStr(it->first).c_str(), f.page_cnt );
-		if (outcsv != 0x0) fprintf(outcsv, "%s", buf);
+		if (outcsv != 0x0) fprintf(outcsv, "%s, %d,,\n", ipToStr(it->first).c_str(), f.page_cnt);
 
 		// list unique pages
 		int cnt = 1;
 		for (int n = 1; n < f.pages.size(); n++) {
 			if (f.pages[n].page == f.pages[n - 1].page) {
 				cnt++;
-			} else {
-				sprintf(buf, ",,%d,%s\n", cnt, f.pages[n-1].page.c_str() );
-				if (outcsv != 0x0) fprintf(outcsv, "%s", buf);
+			} else {				
+				if (outcsv != 0x0) fprintf(outcsv, ",,%d,%s\n", cnt, f.pages[n - 1].page.c_str());
 				cnt = 1;
 			}	
 		}
@@ -1527,69 +1584,91 @@ bool LogRip::init()
 
   LoadConfig ("ruby.conf");
 
-  std::string filename = std::string("csi_log_2025_02_03.txt");
+  std::string filename = std::string("csi_log_2025_07_24.txt");
   std::string logfile;
   if (!getFileLocation(filename, logfile)) {
     printf ( "**** ERROR: Unable to find or open %s\n", filename.c_str() );
     exit(-1);
   }  
 
+  // load log using dynamic parsing
   LoadLog ( logfile );
 
+  // construct IP hash from all page hits
 	dbgprintf("Construct IP Hash.\n");
   ConstructIPHash();
 
+  // find start and end date range
 	dbgprintf("Preparing Days.\n");
   PrepareDays ();
 
+  // sort all IPs and hits by date, compute metrics & scores
 	dbgprintf("Processing IPs.\n");
   ProcessIPs( SUB_D );
 
+  // build Class C-subnets by aggregation
 	dbgprintf ( "Constructing C-Subnets.\n");
   ConstructSubnet ( SUB_D, SUB_C );
 
+  // build Class B-subnets by aggregation
 	dbgprintf ( "Constructing B-Subnets.\n");
   ConstructSubnet ( SUB_C, SUB_B );
 
+  // build Class A-subnets by aggregation
 	dbgprintf ( "Constructing A-Subnets.\n");
   ConstructSubnet ( SUB_B, SUB_A );
 
+  // sort all C-subnet IPs and hits by date, compute metrics & score
 	dbgprintf ( "Processing IPs. C-Subnets.\n");
   ProcessIPs ( SUB_C );
 
+  // sort all B-subnet IPs and hits by date, compute metrics & score
 	dbgprintf ( "Processing IPs. B-Subnets.\n");
   ProcessIPs ( SUB_B );
 
+  // compute blocklist hierarchically for most compact list
   dbgprintf ( "Computing Blocklist.\n");
   ComputeBlocklist ();
 
+  // write out the blocklist
   dbgprintf ( "Writing Blocklist.\n");
   OutputBlocklist ( "out_blocklist.txt" );
 
+  // write B-subnet list with metrics
 	dbgprintf ( "Writing IPs (B-Subnets)... ");
 	cnt = OutputIPs(SUB_B, "out_ips_bnet.csv");
 	printf("%d ips.\n", cnt);
 
+  // write C-subnet list with metrics
   dbgprintf ( "Writing IPs (C-Subnets)... ");
   cnt = OutputIPs ( SUB_C, "out_ips_cnet.csv");
 	printf("%d ips.\n", cnt);
 
+  // write full IP list with metrics
 	dbgprintf ( "Writing IPs (All Mach)... ");
 	cnt = OutputIPs(SUB_D, "out_ips.csv");
 	printf("%d ips.\n", cnt);
 	
+  // write list of all hits organized by IP
   dbgprintf ( "Writing Pages.\n");
   OutputPages ( "out_pages.csv" );
 
+  dbgprintf("Writing Hits.\n");
+  OutputHits("out_hits.csv");
+
+  // create an image for visualization products
   //CreateImg ( 2480, 1024 );
   CreateImg ( 4096, 2048 );
 
-	dbgprintf ( "Writing Hits.\n");
-  OutputHits ( "out_hits.csv" );
-
+  // output visualizations: orginial, blocked, post-filtered
 	dbgprintf ( "Writing Visualizations.\n");
 	OutputVis ();
 
+  // use day-sorted hits to report stats (/w and w/o blocking)
+  dbgprintf ("Writing Daily Stats.\n");
+  OutputStats( "out_stats.csv", "out_stats.png" );
+
+  // compute and visualize estimated server load (before & after)
   dbgprintf ( "Writing Loads.\n");
   OutputLoads ( "" );
 
