@@ -58,20 +58,22 @@ using namespace httplib;
 // config fields
 int CONF_FORMAT =         0;
 int CONF_DEBUGPARSE =     1;
-int CONF_MIN_IPB =        2;
-int CONF_MIN_IPC =        3;
-int CONF_MAX_IPC =        4;
-int CONF_MAX_ROBOT =      5;
-int CONF_MAX_DAILY_HITS =  6;
-int CONF_MAX_DAILY_RANGE = 7;
-int CONF_MAX_CONSEC_DAYS = 8;
-int CONF_MAX_CONSEC_RANGE = 9;
-int CONF_MAX_DAILY_AVE =  10;
-int CONF_MAX_DAILY_PPM =  11;
-int CONF_LOAD_DURATION =  12;
-int CONF_LOAD_SCALE =     13;
-int CONF_VIS_RES =        14;
-int CONF_VIS_ZOOM =       15;
+int CONF_REASONS =        2;
+int CONF_MIN_IPB =        3;
+int CONF_MIN_IPC =        4;
+int CONF_MAX_IPC =        5;
+int CONF_MAX_ROBOT =      6;
+int CONF_MAX_DAILY_HITS =  7;
+int CONF_MAX_DAILY_RANGE = 8;
+int CONF_MAX_CONSEC_DAYS = 9;
+int CONF_MAX_CONSEC_RANGE = 10;
+int CONF_MAX_DAILY_AVE =  11;
+int CONF_MAX_DAILY_PPM =  12;
+int CONF_LOAD_DURATION =  13;
+int CONF_LOAD_SCALE =     14;
+int CONF_VIS_RES =        15;
+int CONF_VIS_ZOOM =       16;
+
 
 enum class ValueType {
   STRING,
@@ -373,6 +375,7 @@ void LogRip::LoadConfig ( std::string filename )
   m_Config = {
     {CONF_FORMAT,           "format",           ValueType::STRING, Value(std::string("")) },
     {CONF_DEBUGPARSE,       "debugparse",       ValueType::BOOL,   Value(false) },
+    {CONF_REASONS,          "reasons",          ValueType::BOOL,   Value(false) },
     {CONF_MIN_IPB,          "min_ip_b",         ValueType::INT,    Value(1024) },
     {CONF_MIN_IPC,          "min_ip_c",         ValueType::INT,    Value(3) },
     {CONF_MAX_IPC,          "max_ip_c",         ValueType::INT,    Value(80) },
@@ -383,8 +386,8 @@ void LogRip::LoadConfig ( std::string filename )
     {CONF_MAX_CONSEC_RANGE, "max_consec_range", ValueType::INT,    Value(240) },
     {CONF_MAX_DAILY_AVE,    "max_daily_ave",    ValueType::INT,    Value(100) },
     {CONF_MAX_DAILY_PPM,    "max_daily_ppm",    ValueType::FLOAT,  Value(5) },
-    {CONF_LOAD_DURATION,    "load_duration",    ValueType::FLOAT,  Value(120) },
-    {CONF_LOAD_SCALE,       "load_scale",       ValueType::FLOAT,  Value(60) },
+    {CONF_LOAD_DURATION,    "load_duration",    ValueType::FLOAT,  Value(80) },
+    {CONF_LOAD_SCALE,       "load_scale",       ValueType::FLOAT,  Value(40) },
     {CONF_VIS_RES,          "vis_res",          ValueType::VEC4F,  Value( Vec4F(2048,1024,0,0) ) },
     {CONF_VIS_ZOOM,         "vis_zoom",         ValueType::VEC4F,  Value(Vec4F(0,0,1000,224)) }
   };
@@ -905,7 +908,21 @@ void LogRip::ComputeScore (IPInfo* f)
   if (f->max_consecutive >= getI(CONF_MAX_CONSEC_DAYS) && f->daily_max_range > getI(CONF_MAX_CONSEC_RANGE) ) score = 2;
   if (f->daily_ave_hit > getI(CONF_MAX_DAILY_AVE) && f->daily_max_ppm > getF(CONF_MAX_DAILY_PPM)) score = 1;
 
-  if (score > 0 ) printf ( "IP: %s, score: %d\n", ipToStr(f->ip).c_str(), score );      // check cause of blocking
+  bool reasons = getB(CONF_REASONS);
+  if (reasons && score > 0 ) {    
+    std::string whystr="";
+    switch (score) {
+    case 6: whystr = "#mach"; break;
+    case 5: whystr = "robots"; break;
+    case 4: whystr = "daily hits"; break;
+    case 3: whystr = "daily range"; break;
+    case 2: whystr = "consecutive"; break;
+    case 1: whystr = "too fast"; break;
+    };
+    if (f->lev==SUB_B) whystr += " B-subnet";
+    if (f->lev==SUB_C) whystr += " C-subnet";
+    printf ( "  IP: %s, Reason: %s\n", ipToStr(f->ip).c_str(), whystr.c_str() );      // print cause of blocking
+  }
   
   f->score = score;
   
