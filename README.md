@@ -50,8 +50,8 @@ Now run logrip with the ruby.log input file along with the ruby.conf config file
 ### Config File & Policy Settings
 A config file (.conf) controls the log parsing and the policy settings for blocking.
 One would typically use, copy or modify an existing .conf file provided in /assets and then customize.
-The full list of config settings and descriptions of each can be found in the Logrip Manual here:
-<a https://github.com/quantasci/logrip/blob/main/docs/logrip_manual.pdf>Logrip Manual ver 1.0</a>
+The full list of config settings and descriptions of each can be found in the Logrip Manual here:<br>
+<a href="https://github.com/quantasci/logrip/blob/main/docs/logrip_manual.pdf">Logrip Manual ver 1.0</a>
 
 ### Complete Demo
 This is the complete example used in the video example at Blackhat 2025:
