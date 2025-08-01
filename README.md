@@ -1,3 +1,5 @@
+<img src="https://github.com/quantasci/logrip/blob/main/assets/logrip_banner.png" />
+
 ## Logrip
 Defend against AI crawlers & bots with server log analysis.<br>
 
