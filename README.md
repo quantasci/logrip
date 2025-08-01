@@ -1,9 +1,8 @@
 ## Logrip
 Defend against AI crawlers & bots with server log analysis.<br>
 
-This is the official repository for Logrip:<br>
+Presented at Blackhat USA 2025, this is the official repository for:<br>
 <a href="https://www.blackhat.com/us-25/briefings/schedule/#protecting-small-organizations-in-the-era-of-ai-bots-45666">Protecting Small Organizations in the Era of AI Bots</a>, R. Hoetzlein, 2025<br>
-Presented at Blackhat USA 2025<br>
 
 ### Installation
 Linux: Retrieve the two repos and use the build scripts provide.
