@@ -6,6 +6,8 @@ Defend against AI crawlers & bots with server log analysis.<br>
 Presented at Blackhat USA 2025, this is the official repository for:<br>
 <a href="https://www.blackhat.com/us-25/briefings/schedule/#protecting-small-organizations-in-the-era-of-ai-bots-45666">Protecting Small Organizations in the Era of AI Bots, R. Hoetzlein, 2025</a><br>
 
+Manual: <a href="https://github.com/quantasci/logrip/blob/main/docs/logrip_manual.pdf">Logrip Manual ver 1</a>
+
 ### Installation
 Linux: Retrieve the two repos and use the build scripts provide.
 ```
@@ -49,9 +51,9 @@ Now run logrip with the ruby.log input file along with the ruby.conf config file
 
 ### Config File & Policy Settings
 A config file (.conf) controls the log parsing and the policy settings for blocking.
-One would typically use, copy or modify an existing .conf file provided in /assets and then customize.
-The full list of config settings and descriptions of each can be found in the Logrip Manual here:<br>
-<a href="https://github.com/quantasci/logrip/blob/main/docs/logrip_manual.pdf">Logrip Manual ver 1.0</a>
+One would typically use, copy or modify an existing .conf file provided in /assets and then customize.<br>
+The full list of config settingscan be found in the manual here:<br>
+Manual: <a href="https://github.com/quantasci/logrip/blob/main/docs/logrip_manual.pdf">Logrip Manual ver 1.0</a>
 
 ### Complete Demo
 This is the complete example used in the video example at Blackhat 2025:
