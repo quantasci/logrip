@@ -8,7 +8,7 @@ Apache 2.0 License<br>
 https://www.apache.org/licenses/LICENSE-2.0.txt
 
 ### Complete Demo
-This is the complete example used in the video example as Blackhat 2025:
+This is the complete example used in the video example at Blackhat 2025:
 ```
 git clone https://github.com/quantasci/libmin
 git clone https://github.com/quantasci/logrip
