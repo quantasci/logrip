@@ -22,8 +22,10 @@ The config_file must be .conf<br>
 An example log and config file are provided.<br>
 
 ### Generating logs
-The input to logrip are server access logs as produced by journalctl, for example.
-How to generate Apache2 logs:
+Logrip takes a historic server access log as input.<br>
+To generate these you would typically use journalctl, or others server tools that output logs.<br>
+Here are examples of how to generate logs for apache2 or ruby-on-rails.<br>
+How to generate Apache2 logs:<br>
 ```
 > cd /var/log/apache2
 > ls -l -a
