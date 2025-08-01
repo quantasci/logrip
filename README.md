@@ -42,7 +42,7 @@ How to generate Apache2 logs:<br>
 > zcat access.log.*.gz > apache.log
 > cat access.log.1 access.log >> apache.log
 ```
-Now run logrip the apache.log input file along with the apache2.conf config file.<br>
+Now run logrip with the apache.log input file along with the apache2.conf config file.<br>
 
 How to generate Ruby-on-Rails logs:
 ```
