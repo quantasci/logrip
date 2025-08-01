@@ -29,6 +29,7 @@ Running logrip requires two arguments as input:<br>
 The access_log must be either .txt or .log<br>
 The config_file must be .conf<br>
 An example log and config file are provided.<br>
+After installation you can quickly test logrip by doing: ./run.sh<br>
 
 ### Generating logs
 Logrip takes a historic server access log as input.<br>
