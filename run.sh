@@ -1,4 +1,2 @@
 
-cd ../build/logrip
-
-./logrip example_log.txt ruby.conf
+../build/logrip/logrip example_log.txt ruby.conf
