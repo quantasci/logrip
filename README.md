@@ -12,6 +12,8 @@ cd ..
 cd logrip
 ./build.sh
 ```
+The executable logrip will be in ../build/logrip
+
 ### Running Logrip
 Running logrip requires two arguments as input:<br>
 ```
