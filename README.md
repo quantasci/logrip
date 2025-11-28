@@ -8,18 +8,21 @@ Presented at Blackhat USA 2025, this is the official repository for:<br>
 
 Manual: <a href="https://github.com/quantasci/logrip/blob/main/docs/logrip_manual.pdf">Logrip Manual ver 1</a>
 
-### Installation
-Linux: Retrieve the two repos and use the build scripts provide.
-```
-git clone https://github.com/quantasci/libmin
-git clone https://github.com/quantasci/logrip
-cd libmin
-./build.sh
-cd ..
-cd logrip
-./build.sh
-```
-The executable logrip will be in ../build/logrip
+## How to Build
+**Updated Nov 2025**<br>
+Build with cmake is now simpler and faster.<br>
+Libmin dependent code is directly compiled into the project (no shared or static libs).<br>
+Steps:<br>
+1. Clone this logrip repo<br>
+2. Clone <a href="https://github.com/ramakarl/libmin">libmin</a> as a sibling folder<br>
+<pre>
+\codes
+ ├── \logrip
+ └── \libmin
+</pre>
+3. Run cmake or cmake-gui on the logrip cmake.<br>
+
+See <a href="https://github.com/ramakarl/libmin">libmin</a> for more details.
 
 ### Running Logrip
 Running logrip requires two arguments as input:<br>
