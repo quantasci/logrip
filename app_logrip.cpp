@@ -28,14 +28,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <regex>
+#include <unordered_map>
 
 #ifdef _WIN32
   #include <conio.h>
 #endif
 
-#define CPPHTTPLIB_OPENSSL_SUPPORT
-#include "httplib.h"
-using namespace httplib;
+#ifdef BUILD_OPENSSL
+  #define CPPHTTPLIB_OPENSSL_SUPPORT
+  #include "httplib.h"
+  using namespace httplib;
+#endif
 
 // lookup fields
 #define L_STATUS    0
@@ -1473,25 +1476,28 @@ void LogRip::OutputLoads (std::string filename)
 }
 
 
+
 void LogRip::LookupName (IPInfo* f)
 {
-  // lookup IP 
-  // HTTP		
-  httplib::Client cli("http://ip-api.com");	
-  std::string ipstr = "/line/" + ipToStr(f->pages[0].ip) + "?fields=status,country,regionName,city,zip,lat,long,isp,org,asname";
-  auto res = cli.Get(ipstr.c_str());
-  if (res->status == StatusCode::OK_200) {
-    // parse out the 10 result strings: status,country,regionName,city,zip,lat,long,isp,org,asname
-    std::string str = res->body;
-    for (int n = 0; n < 10; n++) {
-      f->lookup[n] = strSplitLeft(str, "\n");
+  #ifdef BUILD_OPENSSL
+    // lookup IP 
+    // HTTP		
+    httplib::Client cli("http://ip-api.com");	
+    std::string ipstr = "/line/" + ipToStr(f->pages[0].ip) + "?fields=status,country,regionName,city,zip,lat,long,isp,org,asname";
+    auto res = cli.Get(ipstr.c_str());
+    if (res->status == StatusCode::OK_200) {
+      // parse out the 10 result strings: status,country,regionName,city,zip,lat,long,isp,org,asname
+      std::string str = res->body;
+      for (int n = 0; n < 10; n++) {
+        f->lookup[n] = strSplitLeft(str, "\n");
+      }
     }
-  }
 
-  #ifdef _WIN32
-    Sleep(1500);   // ip-api, "This endpoint is limited to 45 queries per minute from an IP address"	
-  #else
-    sleep(1500);
+    #ifdef _WIN32
+      Sleep(1500);   // ip-api, "This endpoint is limited to 45 queries per minute from an IP address"	
+    #else
+      sleep(1500);
+    #endif
   #endif
 }
 
@@ -1510,7 +1516,9 @@ int LogRip::OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp)
       // print ip info
       f = &it->second;
 
-      // LookupName ( &f );
+      #ifdef BUILD_OPENSSL
+        LookupName ( &f );
+      #endif
 
       Vec4F ipv = ipToVec( it->first );
       Vec4F ipp = ipToVec( parent );
