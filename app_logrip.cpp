@@ -186,7 +186,6 @@ struct IPInfo {
   float  daily_max_range; // highest daily range (start to end in hours)
 
   float  daily_pages;     // ave  # pages per day
-  float  daily_uniq;      // uniq # pages per day
   float  uniq_ratio;
   float  visit_freq;
   float  visit_time;
@@ -444,8 +443,6 @@ void LogRip::LoadConfig ( std::string filename )
 
 void LogRip::SortPagesByTime(std::vector<LogInfo>& pages)
 {
-  LogInfo tmp;
-
   std::sort(pages.begin(), pages.end(), [](const LogInfo& a, const LogInfo& b) {
     return a.date < b.date;
   });
@@ -453,8 +450,6 @@ void LogRip::SortPagesByTime(std::vector<LogInfo>& pages)
 
 void LogRip::SortPagesByName (std::vector<LogInfo>& pages)
 {
-  LogInfo tmp;
-
   std::sort(pages.begin(), pages.end(), [](const LogInfo& a, const LogInfo& b) {
     return a.page < b.page;
   });
@@ -563,7 +558,7 @@ char ConvertToLog ( LogInfo& li, char typ, std::string str )
 {
   int day, mo, yr, hr, min, sec;
   std::string val;
-  size_t p1, p2, p3;
+  size_t p1, p2;
   Vec4F vec;
 
   switch (typ) {
@@ -611,7 +606,6 @@ char ConvertToLog ( LogInfo& li, char typ, std::string str )
 void LogRip::LoadLog (std::string filename)
 {
   std::string lin, str, val;	
-  bool ok; 		
   std::string reason;
   Vec4F vec;
   LogInfo li;
@@ -1097,12 +1091,9 @@ void LogRip::InsertIP ( IPInfo i, int dest_lev )
 
 void LogRip::ConstructSubnet ( int src_lev, int dest_lev )
 {
-  Vec4F ipv;
   IPInfo i;	
-  uint32_t mask;
 
   IPMap_t& src = m_IPList[src_lev];	
-  mask = getMask(dest_lev);
   
   // insert all IPs into parent subnet	
   std::map<uint32_t, IPInfo>::iterator it;
@@ -1162,7 +1153,6 @@ void LogRip::OutputHits ( std::string filename )
 void LogRip::OutputStats(std::string filename, std::string imgname)
 {
   FILE* outcsv;
-  LogInfo* i;
   Vec3I actions;
 
   outcsv = fopen(filename.c_str(), "wt");
@@ -1192,7 +1182,6 @@ void LogRip::OutputStats(std::string filename, std::string imgname)
 
 
   int x1, x2, y1, y2;
-  Vec3F y;
   int xr = m_img[0].GetWidth() - 1;
   int yr = m_img[0].GetHeight() - 1;  
   m_img[I_ORIG].Fill(255, 255, 255, 255);
@@ -1346,9 +1335,6 @@ void LogRip::OutputVis ()
   if (range.z >= m_total_days) range.z = m_total_days-1;
   if (range.w > 224) range.w = 224;
 
-  int show_min = 1;
-  int show_max = 29;
-
   // compute starting time
   int first = 0;
   float first_tm = 10e10;
@@ -1364,9 +1350,8 @@ void LogRip::OutputVis ()
 
   Vec4F black(0,0,0,255);
 
-  int x, x1, x2, y;
+  int x, y;
   Vec4F clr_block;
-  IPInfo *f;
 
   // day grid
   for (int d = 0; d <= m_total_days; d++) {		
@@ -1538,16 +1523,9 @@ int LogRip::OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp)
         LookupName ( f );
       #endif
 
-      Vec4F ipv = ipToVec( it->first );
-      Vec4F ipp = ipToVec( parent );
-      if (ipv.x==92 && ipv.y==28 && ipv.z==82 && ipv.w==214) {
-      bool stop=true;
-    }
       const std::string& ipstr = ipToStr(it->first);			
       const char* pagename = "";
       if (lev == 3 && !f->pages.empty()) { pagename = f->pages[0].page.c_str(); }
-
-      float day_freq = f->visit_freq / f->elapsed;			// # secs/day
 
       snprintf(m_buf, 2048, "%s, %d, %d, %d, %.2f, %.2f, %d, %d, %f, %f, %f, %f, %f, %f, %s, %s, %s, %s\n",
         ipstr.c_str(), f->ip_cnt, f->page_cnt, f->uniq_cnt,
@@ -1580,9 +1558,7 @@ int LogRip::OutputIPs (int outlev, std::string filename )
     exit(-1);
   }	
   // header 	
-  if (outcsv != 0x0) {
-    fprintf(outcsv, "IP, ip_cnt, page_cnt, uniq_cnt, uniq_ratio, elapsed(days), max_consec, num_robot, min_hit, min_hr, min_ppm, max_hit, max_hr, max_ppm, org, region, country, page\n" );
-  }
+  fprintf(outcsv, "IP, ip_cnt, page_cnt, uniq_cnt, uniq_ratio, elapsed(days), max_consec, num_robot, min_hit, min_hr, min_ppm, max_hit, max_hr, max_ppm, org, region, country, page\n" );
 
   // recursive
   int cnt = OutputIPs ( outlev, SUB_A, vecToIP(Vec4F(255,255,255,255)), outcsv );	
@@ -1602,7 +1578,7 @@ void LogRip::OutputPages (std::string filename)
     exit(-1);
   }
   // header		
-  if (outcsv != 0x0) fprintf(outcsv, "IP, pages, cnt, page\n");
+  fprintf(outcsv, "IP, pages, cnt, page\n");
 
   IPMap_iter it;
   IPMap_t& list = m_IPList[SUB_D];
@@ -1614,7 +1590,7 @@ void LogRip::OutputPages (std::string filename)
     // sort pages by name 
     SortPagesByName(f.pages);
 
-    if (outcsv != 0x0) fprintf(outcsv, "%s, %d,,\n", ipToStr(it->first).c_str(), f.page_cnt);
+    fprintf(outcsv, "%s, %d,,\n", ipToStr(it->first).c_str(), f.page_cnt);
 
     // list unique pages
     int cnt = 1;
@@ -1622,7 +1598,7 @@ void LogRip::OutputPages (std::string filename)
       if (f.pages[n].page == f.pages[n - 1].page) {
         cnt++;
       } else {				
-        if (outcsv != 0x0) fprintf(outcsv, ",,%d,%s\n", cnt, f.pages[n - 1].page.c_str());
+        fprintf(outcsv, ",,%d,%s\n", cnt, f.pages[n - 1].page.c_str());
         cnt = 1;
       }	
     }
