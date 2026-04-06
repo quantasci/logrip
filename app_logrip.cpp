@@ -861,7 +861,7 @@ void LogRip::ComputeDailyMetrics ( IPInfo* f)
         }				
         pl = p;				
       }
-      ave_ppm = (daily_hits==1) ? 0 : (daily_hits - 1) / ave_ppm;
+      ave_ppm = (daily_hits==1 || (ave_ppm == 0)) ? 0 : (daily_hits - 1) / ave_ppm;
 
       range -= gap;
 
@@ -1012,7 +1012,8 @@ void LogRip::ProcessIPs( int lev )
       std::nth_element(diffs.begin(), diffs.begin() + mid, diffs.end());
       f->visit_freq = diffs[mid];
     }
-    f->visit_time = f->end_date.GetElapsedSec(f->start_date) / f->page_cnt; // est. visit time
+    f->visit_time = (f->page_cnt > 0) ? (f->end_date.GetElapsedSec(f->start_date) / f->page_cnt) : 0; // est. visit time
+
     f->elapsed = f->end_date.GetElapsedDays(f->start_date);
 
     // Compute blocklist score
@@ -1201,7 +1202,7 @@ void LogRip::OutputStats(std::string filename, std::string imgname)
   fprintf(outcsv, "Date, All, Blocked, Allowed, Reduction\n");
   for (int d = 0; d < m_total_days; d++) {
     actions = m_DayList[d].stats;
-    reduced = float(actions.y)*100.0 / float(actions.x); 
+    reduced = (actions.x > 0) ? float(actions.y) * 100.0f / float(actions.x) : 0.0f;
     datestr = m_DayList[d].date.WriteDateTime();    
     printf ( " %s: All hits: %d, Blocked: %d, Allowed: %d, Reduction: %f%%\n", datestr.c_str(), actions.x, actions.y, actions.z, reduced);  
     fprintf( outcsv, "%s, %d, %d, %d, %f\n", datestr.c_str(), actions.x, actions.y, actions.z, reduced );
