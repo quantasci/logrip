@@ -420,8 +420,7 @@ void LogRip::LoadConfig ( std::string filename )
     SetDefaultConfig ();
     return;
   }
-  while (!feof(fp)) {
-    fgets ( m_buf, 2048, fp );
+  while (fgets ( m_buf, 2048, fp ) != NULL) {
     val = m_buf;
 
     key = strSplitLeft ( val, ":" );
@@ -637,10 +636,9 @@ void LogRip::LoadLog (std::string filename)
   std::regex regex(regexPattern);
 
 
-  while (!feof(fp) && hits < maxlog ) {
+  while ((fgets ( m_buf, 65535, fp ) != NULL ) && (hits < maxlog )) {
 
     // read next line
-    fgets ( m_buf, 65535, fp );
     lin = m_buf;
 
     // report percentage complete
