@@ -539,13 +539,12 @@ std::string FormatToRegex(const std::string& format, defList& groupLabels)
   return pattern;
 }
 
-std::vector<std::string> ParseInput(const std::string& pattern, const std::string& input) 
+std::vector<std::string> ParseInput(const std::regex& regex, const std::string& input)
 {
-  std::regex rgx(pattern);
   std::smatch match;
   std::vector<std::string> results;
 
-  if (std::regex_search(input, match, rgx)) {
+  if (std::regex_search(input, match, regex)) {
     for (size_t i = 1; i < match.size(); ++i) {
       results.push_back(match[i].str());
     }
@@ -635,6 +634,7 @@ void LogRip::LoadLog (std::string filename)
   // std::string format = "* Started {GET} \"{PAGE}\" for {X.X.X.X} at {YYYY-MM-DD} {HH:MM:SS}";
   std::string format = getStr( CONF_FORMAT );
   std::string regexPattern = FormatToRegex ( format, groupLabels );
+  std::regex regex(regexPattern);
 
 
   while (!feof(fp) && hits < maxlog ) {
@@ -663,7 +663,7 @@ void LogRip::LoadLog (std::string filename)
     li.clear();				
     
     // parse this line
-    std::vector<std::string> results = ParseInput ( regexPattern, lin );
+    std::vector<std::string> results = ParseInput ( regex, lin );
 
     // process results
     for (int n = 0; n < results.size(); n++) {
