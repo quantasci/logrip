@@ -29,6 +29,8 @@
 #include <stdio.h>
 #include <regex>
 #include <unordered_map>
+#include <thread>
+#include <chrono>
 
 #ifdef _WIN32
   #include <conio.h>
@@ -1493,11 +1495,7 @@ void LogRip::LookupName (IPInfo* f)
       }
     }
 
-    #ifdef _WIN32
-      Sleep(1500);   // ip-api, "This endpoint is limited to 45 queries per minute from an IP address"	
-    #else
-      sleep(1500);
-    #endif
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500)); // ip-api, "This endpoint is limited to 45 queries per minute from an IP address"	
   #endif
 }
 
