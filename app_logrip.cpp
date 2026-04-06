@@ -1515,7 +1515,7 @@ int LogRip::OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp)
       f = &it->second;
 
       #ifdef BUILD_OPENSSL
-        LookupName ( &f );
+        LookupName ( f );
       #endif
 
       Vec4F ipv = ipToVec( it->first );
