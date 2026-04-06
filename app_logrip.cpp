@@ -42,6 +42,14 @@
   using namespace httplib;
 #endif
 
+#ifdef _WIN32
+  #define ftell64(fp)  _ftelli64(fp)
+  #define fseek64(fp, off, whence)  _fseeki64(fp, off, whence)
+#else
+  #define ftell64(fp)  ftello(fp)
+  #define fseek64(fp, off, whence)  fseeko(fp, off, whence)
+#endif
+
 // lookup fields
 #define L_STATUS    0
 #define L_COUNTRY   1
@@ -623,10 +631,15 @@ void LogRip::LoadLog (std::string filename)
   long hits = 0, skipped = 0;
   char typ;
 
-  fseek(fp, 0, SEEK_END);
-  long size = 0;
-  long max_size = ftell(fp)/1000;
-  fseek(fp, 0, SEEK_SET);
+  fseek64(fp, 0, SEEK_END);
+  int64_t size = 0;
+  int64_t max_size = ftell(fp);
+  if (max_size == 0) {
+    printf ( "ERROR: file %s is empty\n", filename.c_str() );
+    return;
+  }
+
+  fseek64(fp, 0, SEEK_SET);
 
   defList groupLabels;
   // std::string format = "{X.X.X.X} {AAA} {AAA} [{DD/MMM/YYYY}:{HH:MM:SS} +{NNN}] \"{GET} {PAGE}HTTP/*\" {RETURN} {BYTES} \"*\" {PLATFORM}";
@@ -642,7 +655,7 @@ void LogRip::LoadLog (std::string filename)
     lin = m_buf;
 
     // report percentage complete
-    size = ftell(fp)/1000;
+    size = ftell(fp);
     perc = (size*100)/max_size; 
     if ( (perc % 5)==0 && perc != percl) {
       percl = perc;
