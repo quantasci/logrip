@@ -1194,8 +1194,11 @@ void LogRip::OutputStats(std::string filename, std::string imgname)
   // round up to nearest base-10 power
   if (ymax==0) ymax = 1;
   int power = (int) pow(10, (int)log10(ymax));
-  ymax = ((ymax + power - 1) / power) * power;  
-  for (int y = 0; y < ymax; y += ymax / 10) {
+  ymax = ((ymax + power - 1) / power) * power;
+
+  int step = ymax / 10;
+  if (step < 1) step = 1;
+  for (int y = 0; y < ymax; y += step) {
     m_img[I_ORIG].Line (0, y*yr/ymax, xr, y*yr/ymax, Vec4F(100,100,100,1));
   }
   // output stats by day and visualize
