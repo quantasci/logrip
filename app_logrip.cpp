@@ -956,6 +956,8 @@ void LogRip::ProcessIPs( int lev )
         f->uniq_cnt++;
     }
 
+    f->uniq_ratio = (f->page_cnt > 0) ? ((float)f->uniq_cnt / f->page_cnt) : 0.0f;
+
     // keep pages sorted by time 
     SortPagesByTime( f->pages );
 
@@ -1532,11 +1534,10 @@ int LogRip::OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp)
       if (lev == 3 && !f->pages.empty()) { pagename = f->pages[0].page.c_str(); }
 
       float day_freq = f->visit_freq / f->elapsed;			// # secs/day
-      float uniq_ratio = (f->page_cnt > 0) ? ((float)f->uniq_cnt / f->page_cnt) : 0.0f;
 
       snprintf(m_buf, 2048, "%s, %d, %d, %d, %.2f, %.2f, %d, %d, %f, %f, %f, %f, %f, %f, %s, %s, %s, %s\n",
         ipstr.c_str(), f->ip_cnt, f->page_cnt, f->uniq_cnt,
-        uniq_ratio, f->elapsed,
+        f->uniq_ratio, f->elapsed,
         f->max_consecutive, f->num_robots,
         f->daily_min_hit, f->daily_min_range/60.0, f->daily_min_ppm, f->daily_max_hit, f->daily_max_range/60.0, f->daily_max_ppm,
         f->lookup[L_ORG].c_str(), f->lookup[L_REGION].c_str(), f->lookup[L_COUNTRY].c_str(), pagename );
