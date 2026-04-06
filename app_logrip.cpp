@@ -1190,9 +1190,9 @@ void LogRip::OutputStats(std::string filename, std::string imgname)
     if (m_DayList[d].stats.x > ymax) ymax = m_DayList[d].stats.x;
   }
   // round up to nearest base-10 power
+  if (ymax==0) ymax = 1;
   int power = (int) pow(10, (int)log10(ymax));
   ymax = ((ymax + power - 1) / power) * power;  
-  if (ymax==0) ymax = 1;
   for (int y = 0; y < ymax; y += ymax / 10) {
     m_img[I_ORIG].Line (0, y*yr/ymax, xr, y*yr/ymax, Vec4F(100,100,100,1));
   }
