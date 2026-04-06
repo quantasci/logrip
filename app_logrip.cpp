@@ -1003,7 +1003,13 @@ void LogRip::ProcessIPs( int lev )
     }
 
     // get median (ignore outliers and time gaps)
-    f->visit_freq = (diffs.size()==0) ? 0 : diffs[ diffs.size()/2 ];        // median
+    if (diffs.empty()) {
+      f->visit_freq = 0;
+    } else {
+      size_t mid = diffs.size() / 2;
+      std::nth_element(diffs.begin(), diffs.begin() + mid, diffs.end());
+      f->visit_freq = diffs[mid];
+    }
     f->visit_time = f->end_date.GetElapsedSec(f->start_date) / f->page_cnt; // est. visit time
     f->elapsed = f->end_date.GetElapsedDays(f->start_date);
 
