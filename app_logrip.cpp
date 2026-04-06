@@ -1553,13 +1553,11 @@ int LogRip::OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp)
 
 int LogRip::OutputIPs (int outlev, std::string filename )
 {	
-  char fname[1024];
   FILE* outcsv = 0x0;
 
-  strncpy(fname, filename.c_str(), 1024);
-  outcsv = fopen( fname, "wt");
+  outcsv = fopen( filename.c_str(), "wt");
   if (outcsv == 0x0) {
-    dbgprintf ( "ERROR: Unable to open %s for writing.\n", fname);
+    dbgprintf ( "ERROR: Unable to open %s for writing.\n", filename.c_str());
     exit(-1);
   }	
   // header 	
@@ -1577,13 +1575,11 @@ int LogRip::OutputIPs (int outlev, std::string filename )
 
 void LogRip::OutputPages (std::string filename)
 {
-  char fname[1024];
   FILE* outcsv = 0x0;
 
-  strncpy(fname, filename.c_str(), 1024);
-  outcsv = fopen(fname, "wt");
+  outcsv = fopen(filename.c_str(), "wt");
   if (outcsv == 0x0) {
-    dbgprintf("ERROR: Unable to open %s for writing.\n", fname);
+    dbgprintf("ERROR: Unable to open %s for writing.\n", filename.c_str());
     exit(-1);
   }
   // header		
