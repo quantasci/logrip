@@ -60,6 +60,8 @@ The full list of config settingscan be found in the manual here:<br>
 Manual: <a href="https://github.com/quantasci/logrip/blob/main/docs/logrip_manual.pdf">Logrip Manual ver 1.0</a>
 
 ### Complete Demo
+*NOTE* Jan 2026. Build steps have changed since this demo. It is no longer necessary to compile libmin separately. See How to Build above.
+
 This is the complete example used in the video example at Blackhat 2025:
 ```
 git clone https://github.com/quantasci/libmin
