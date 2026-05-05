@@ -29,6 +29,8 @@
 #include <stdio.h>
 #include <regex>
 #include <unordered_map>
+#include <thread>
+#include <chrono>
 
 #ifdef _WIN32
   #include <conio.h>
@@ -38,6 +40,14 @@
   #define CPPHTTPLIB_OPENSSL_SUPPORT
   #include "httplib.h"
   using namespace httplib;
+#endif
+
+#ifdef _WIN32
+  #define ftell64(fp)  _ftelli64(fp)
+  #define fseek64(fp, off, whence)  _fseeki64(fp, off, whence)
+#else
+  #define ftell64(fp)  ftello(fp)
+  #define fseek64(fp, off, whence)  fseeko(fp, off, whence)
 #endif
 
 // lookup fields
@@ -176,7 +186,6 @@ struct IPInfo {
   float  daily_max_range; // highest daily range (start to end in hours)
 
   float  daily_pages;     // ave  # pages per day
-  float  daily_uniq;      // uniq # pages per day
   float  uniq_ratio;
   float  visit_freq;
   float  visit_time;
@@ -418,8 +427,7 @@ void LogRip::LoadConfig ( std::string filename )
     SetDefaultConfig ();
     return;
   }
-  while (!feof(fp)) {
-    fgets ( m_buf, 2048, fp );
+  while (fgets ( m_buf, 2048, fp ) != NULL) {
     val = m_buf;
 
     key = strSplitLeft ( val, ":" );
@@ -435,8 +443,6 @@ void LogRip::LoadConfig ( std::string filename )
 
 void LogRip::SortPagesByTime(std::vector<LogInfo>& pages)
 {
-  LogInfo tmp;
-
   std::sort(pages.begin(), pages.end(), [](const LogInfo& a, const LogInfo& b) {
     return a.date < b.date;
   });
@@ -444,8 +450,6 @@ void LogRip::SortPagesByTime(std::vector<LogInfo>& pages)
 
 void LogRip::SortPagesByName (std::vector<LogInfo>& pages)
 {
-  LogInfo tmp;
-
   std::sort(pages.begin(), pages.end(), [](const LogInfo& a, const LogInfo& b) {
     return a.page < b.page;
   });
@@ -537,13 +541,12 @@ std::string FormatToRegex(const std::string& format, defList& groupLabels)
   return pattern;
 }
 
-std::vector<std::string> ParseInput(const std::string& pattern, const std::string& input) 
+std::vector<std::string> ParseInput(const std::regex& regex, const std::string& input)
 {
-  std::regex rgx(pattern);
   std::smatch match;
   std::vector<std::string> results;
 
-  if (std::regex_search(input, match, rgx)) {
+  if (std::regex_search(input, match, regex)) {
     for (size_t i = 1; i < match.size(); ++i) {
       results.push_back(match[i].str());
     }
@@ -555,7 +558,7 @@ char ConvertToLog ( LogInfo& li, char typ, std::string str )
 {
   int day, mo, yr, hr, min, sec;
   std::string val;
-  size_t p1, p2, p3;
+  size_t p1, p2;
   Vec4F vec;
 
   switch (typ) {
@@ -603,7 +606,6 @@ char ConvertToLog ( LogInfo& li, char typ, std::string str )
 void LogRip::LoadLog (std::string filename)
 {
   std::string lin, str, val;	
-  bool ok; 		
   std::string reason;
   Vec4F vec;
   LogInfo li;
@@ -623,26 +625,31 @@ void LogRip::LoadLog (std::string filename)
   long hits = 0, skipped = 0;
   char typ;
 
-  fseek(fp, 0, SEEK_END);
-  long size = 0;
-  long max_size = ftell(fp)/1000;
-  fseek(fp, 0, SEEK_SET);
+  fseek64(fp, 0, SEEK_END);
+  int64_t size = 0;
+  int64_t max_size = ftell(fp);
+  if (max_size == 0) {
+    printf ( "ERROR: file %s is empty\n", filename.c_str() );
+    return;
+  }
+
+  fseek64(fp, 0, SEEK_SET);
 
   defList groupLabels;
   // std::string format = "{X.X.X.X} {AAA} {AAA} [{DD/MMM/YYYY}:{HH:MM:SS} +{NNN}] \"{GET} {PAGE}HTTP/*\" {RETURN} {BYTES} \"*\" {PLATFORM}";
   // std::string format = "* Started {GET} \"{PAGE}\" for {X.X.X.X} at {YYYY-MM-DD} {HH:MM:SS}";
   std::string format = getStr( CONF_FORMAT );
   std::string regexPattern = FormatToRegex ( format, groupLabels );
+  std::regex regex(regexPattern);
 
 
-  while (!feof(fp) && hits < maxlog ) {
+  while ((fgets ( m_buf, 65535, fp ) != NULL ) && (hits < maxlog )) {
 
     // read next line
-    fgets ( m_buf, 65535, fp );
     lin = m_buf;
 
     // report percentage complete
-    size = ftell(fp)/1000;
+    size = ftell(fp);
     perc = (size*100)/max_size; 
     if ( (perc % 5)==0 && perc != percl) {
       percl = perc;
@@ -661,7 +668,7 @@ void LogRip::LoadLog (std::string filename)
     li.clear();				
     
     // parse this line
-    std::vector<std::string> results = ParseInput ( regexPattern, lin );
+    std::vector<std::string> results = ParseInput ( regex, lin );
 
     // process results
     for (int n = 0; n < results.size(); n++) {
@@ -861,7 +868,7 @@ void LogRip::ComputeDailyMetrics ( IPInfo* f)
         }				
         pl = p;				
       }
-      ave_ppm = (daily_hits==1) ? 0 : (daily_hits - 1) / ave_ppm;
+      ave_ppm = (daily_hits==1 || (ave_ppm == 0)) ? 0 : (daily_hits - 1) / ave_ppm;
 
       range -= gap;
 
@@ -956,6 +963,8 @@ void LogRip::ProcessIPs( int lev )
         f->uniq_cnt++;
     }
 
+    f->uniq_ratio = (f->page_cnt > 0) ? ((float)f->uniq_cnt / f->page_cnt) : 0.0f;
+
     // keep pages sorted by time 
     SortPagesByTime( f->pages );
 
@@ -1003,8 +1012,15 @@ void LogRip::ProcessIPs( int lev )
     }
 
     // get median (ignore outliers and time gaps)
-    f->visit_freq = (diffs.size()==0) ? 0 : diffs[ diffs.size()/2 ];        // median
-    f->visit_time = f->end_date.GetElapsedSec(f->start_date) / f->page_cnt; // est. visit time
+    if (diffs.empty()) {
+      f->visit_freq = 0;
+    } else {
+      size_t mid = diffs.size() / 2;
+      std::nth_element(diffs.begin(), diffs.begin() + mid, diffs.end());
+      f->visit_freq = diffs[mid];
+    }
+    f->visit_time = (f->page_cnt > 0) ? (f->end_date.GetElapsedSec(f->start_date) / f->page_cnt) : 0; // est. visit time
+
     f->elapsed = f->end_date.GetElapsedDays(f->start_date);
 
     // Compute blocklist score
@@ -1075,12 +1091,9 @@ void LogRip::InsertIP ( IPInfo i, int dest_lev )
 
 void LogRip::ConstructSubnet ( int src_lev, int dest_lev )
 {
-  Vec4F ipv;
   IPInfo i;	
-  uint32_t mask;
 
   IPMap_t& src = m_IPList[src_lev];	
-  mask = getMask(dest_lev);
   
   // insert all IPs into parent subnet	
   std::map<uint32_t, IPInfo>::iterator it;
@@ -1140,7 +1153,6 @@ void LogRip::OutputHits ( std::string filename )
 void LogRip::OutputStats(std::string filename, std::string imgname)
 {
   FILE* outcsv;
-  LogInfo* i;
   Vec3I actions;
 
   outcsv = fopen(filename.c_str(), "wt");
@@ -1170,7 +1182,6 @@ void LogRip::OutputStats(std::string filename, std::string imgname)
 
 
   int x1, x2, y1, y2;
-  Vec3F y;
   int xr = m_img[0].GetWidth() - 1;
   int yr = m_img[0].GetHeight() - 1;  
   m_img[I_ORIG].Fill(255, 255, 255, 255);
@@ -1181,10 +1192,13 @@ void LogRip::OutputStats(std::string filename, std::string imgname)
     if (m_DayList[d].stats.x > ymax) ymax = m_DayList[d].stats.x;
   }
   // round up to nearest base-10 power
-  int power = (int) pow(10, (int)log10(ymax));
-  ymax = ((ymax + power - 1) / power) * power;  
   if (ymax==0) ymax = 1;
-  for (int y = 0; y < ymax; y += ymax / 10) {
+  int power = (int) pow(10, (int)log10(ymax));
+  ymax = ((ymax + power - 1) / power) * power;
+
+  int step = ymax / 10;
+  if (step < 1) step = 1;
+  for (int y = 0; y < ymax; y += step) {
     m_img[I_ORIG].Line (0, y*yr/ymax, xr, y*yr/ymax, Vec4F(100,100,100,1));
   }
   // output stats by day and visualize
@@ -1193,7 +1207,7 @@ void LogRip::OutputStats(std::string filename, std::string imgname)
   fprintf(outcsv, "Date, All, Blocked, Allowed, Reduction\n");
   for (int d = 0; d < m_total_days; d++) {
     actions = m_DayList[d].stats;
-    reduced = float(actions.y)*100.0 / float(actions.x); 
+    reduced = (actions.x > 0) ? float(actions.y) * 100.0f / float(actions.x) : 0.0f;
     datestr = m_DayList[d].date.WriteDateTime();    
     printf ( " %s: All hits: %d, Blocked: %d, Allowed: %d, Reduction: %f%%\n", datestr.c_str(), actions.x, actions.y, actions.z, reduced);  
     fprintf( outcsv, "%s, %d, %d, %d, %f\n", datestr.c_str(), actions.x, actions.y, actions.z, reduced );
@@ -1324,9 +1338,6 @@ void LogRip::OutputVis ()
   if (range.z >= m_total_days) range.z = m_total_days-1;
   if (range.w > 224) range.w = 224;
 
-  int show_min = 1;
-  int show_max = 29;
-
   // compute starting time
   int first = 0;
   float first_tm = 10e10;
@@ -1342,9 +1353,8 @@ void LogRip::OutputVis ()
 
   Vec4F black(0,0,0,255);
 
-  int x, x1, x2, y;
+  int x, y;
   Vec4F clr_block;
-  IPInfo *f;
 
   // day grid
   for (int d = 0; d <= m_total_days; d++) {		
@@ -1493,11 +1503,7 @@ void LogRip::LookupName (IPInfo* f)
       }
     }
 
-    #ifdef _WIN32
-      Sleep(1500);   // ip-api, "This endpoint is limited to 45 queries per minute from an IP address"	
-    #else
-      sleep(1500);
-    #endif
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500)); // ip-api, "This endpoint is limited to 45 queries per minute from an IP address"	
   #endif
 }
 
@@ -1517,24 +1523,16 @@ int LogRip::OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp)
       f = &it->second;
 
       #ifdef BUILD_OPENSSL
-        LookupName ( &f );
+        LookupName ( f );
       #endif
 
-      Vec4F ipv = ipToVec( it->first );
-      Vec4F ipp = ipToVec( parent );
-      if (ipv.x==92 && ipv.y==28 && ipv.z==82 && ipv.w==214) {
-      bool stop=true;
-    }
       const std::string& ipstr = ipToStr(it->first);			
       const char* pagename = "";
       if (lev == 3 && !f->pages.empty()) { pagename = f->pages[0].page.c_str(); }
 
-      float day_freq = f->visit_freq / f->elapsed;			// # secs/day
-      float uniq_ratio = (f->page_cnt > 0) ? ((float)f->uniq_cnt / f->page_cnt) : 0.0f;
-
       snprintf(m_buf, 2048, "%s, %d, %d, %d, %.2f, %.2f, %d, %d, %f, %f, %f, %f, %f, %f, %s, %s, %s, %s\n",
         ipstr.c_str(), f->ip_cnt, f->page_cnt, f->uniq_cnt,
-        uniq_ratio, f->elapsed,
+        f->uniq_ratio, f->elapsed,
         f->max_consecutive, f->num_robots,
         f->daily_min_hit, f->daily_min_range/60.0, f->daily_min_ppm, f->daily_max_hit, f->daily_max_range/60.0, f->daily_max_ppm,
         f->lookup[L_ORG].c_str(), f->lookup[L_REGION].c_str(), f->lookup[L_COUNTRY].c_str(), pagename );
@@ -1555,19 +1553,15 @@ int LogRip::OutputIPs(int outlev, int lev, uint32_t parent, FILE* fp)
 
 int LogRip::OutputIPs (int outlev, std::string filename )
 {	
-  char fname[1024];
   FILE* outcsv = 0x0;
 
-  strncpy(fname, filename.c_str(), 1024);
-  outcsv = fopen( fname, "wt");
+  outcsv = fopen( filename.c_str(), "wt");
   if (outcsv == 0x0) {
-    dbgprintf ( "ERROR: Unable to open %s for writing.\n", fname);
+    dbgprintf ( "ERROR: Unable to open %s for writing.\n", filename.c_str());
     exit(-1);
   }	
   // header 	
-  if (outcsv != 0x0) {
-    fprintf(outcsv, "IP, ip_cnt, page_cnt, uniq_cnt, uniq_ratio, elapsed(days), max_consec, num_robot, min_hit, min_hr, min_ppm, max_hit, max_hr, max_ppm, org, region, country, page\n" );
-  }
+  fprintf(outcsv, "IP, ip_cnt, page_cnt, uniq_cnt, uniq_ratio, elapsed(days), max_consec, num_robot, min_hit, min_hr, min_ppm, max_hit, max_hr, max_ppm, org, region, country, page\n" );
 
   // recursive
   int cnt = OutputIPs ( outlev, SUB_A, vecToIP(Vec4F(255,255,255,255)), outcsv );	
@@ -1579,17 +1573,15 @@ int LogRip::OutputIPs (int outlev, std::string filename )
 
 void LogRip::OutputPages (std::string filename)
 {
-  char fname[1024];
   FILE* outcsv = 0x0;
 
-  strncpy(fname, filename.c_str(), 1024);
-  outcsv = fopen(fname, "wt");
+  outcsv = fopen(filename.c_str(), "wt");
   if (outcsv == 0x0) {
-    dbgprintf("ERROR: Unable to open %s for writing.\n", fname);
+    dbgprintf("ERROR: Unable to open %s for writing.\n", filename.c_str());
     exit(-1);
   }
   // header		
-  if (outcsv != 0x0) fprintf(outcsv, "IP, pages, cnt, page\n");
+  fprintf(outcsv, "IP, pages, cnt, page\n");
 
   IPMap_iter it;
   IPMap_t& list = m_IPList[SUB_D];
@@ -1601,7 +1593,7 @@ void LogRip::OutputPages (std::string filename)
     // sort pages by name 
     SortPagesByName(f.pages);
 
-    if (outcsv != 0x0) fprintf(outcsv, "%s, %d,,\n", ipToStr(it->first).c_str(), f.page_cnt);
+    fprintf(outcsv, "%s, %d,,\n", ipToStr(it->first).c_str(), f.page_cnt);
 
     // list unique pages
     int cnt = 1;
@@ -1609,7 +1601,7 @@ void LogRip::OutputPages (std::string filename)
       if (f.pages[n].page == f.pages[n - 1].page) {
         cnt++;
       } else {				
-        if (outcsv != 0x0) fprintf(outcsv, ",,%d,%s\n", cnt, f.pages[n - 1].page.c_str());
+        fprintf(outcsv, ",,%d,%s\n", cnt, f.pages[n - 1].page.c_str());
         cnt = 1;
       }	
     }
