@@ -45,9 +45,18 @@ source_group("CUDA" FILES ${CUDA_FILES} )
 #####################################################################################
 # Install Binaries
 #
-install_files ( FILES ${PACKAGE_DLLS} DESTINATION . )    	# DLLs
-install ( FILES $<TARGET_PDB_FILE:${PROJNAME}> OPTIONAL DESTINATION .)   	# PDB
-install ( FILES ${INSTALL_LIST} DESTINATION .)				# EXE
+install(TARGETS ${PROJNAME} DESTINATION .)      # EXE
+if(WIN32)
+    if(PACKAGE_DLLS)
+        install(FILES ${PACKAGE_DLLS} DESTINATION . )          # DLLs
+    endif()
+    if(MSVC)
+        install(FILES $<TARGET_PDB_FILE:${PROJNAME}> OPTIONAL DESTINATION .)         # PDB
+    endif()
+endif()
+if(INSTALL_LIST)
+    install(FILES ${INSTALL_LIST} DESTINATION .)    # anything elsr
+endif()
 
 ###########################
 # Done
